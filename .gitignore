@@ -1,0 +1,12 @@
+README_DEV.md
+terraform.tfstate
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/errored.tfstate
+terraform/images/*
+terraform/.terraform/*
+ansible/bin/*
+ansible/include/*
+ansible/lib/*
+ansible/lib64/*

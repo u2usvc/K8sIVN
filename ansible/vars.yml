@@ -1,0 +1,6 @@
+cni_plugins:
+  cilium:
+    chart:
+      name: cilium
+      ref: cilium/cilium
+      url: https://helm.cilium.io/

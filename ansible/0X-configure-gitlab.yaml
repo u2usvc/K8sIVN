@@ -1,0 +1,818 @@
+---
+- hosts: cp
+  become: true
+  vars:
+    gitlab_token: "MYG1TL4B4$$3SST0K3N"
+    gitlab_password: "g1tl4b_p4$$w0rd"
+    gitlab_username: "gitlab_admin"
+  tasks:
+    # kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
+    - name: Apply FluxCD installation manifest
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: present
+        src: "https://github.com/fluxcd/flux2/releases/latest/download/install.yaml"
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    # - name: Debug
+    #   debug:
+    #     var: _install_package
+
+    - name: install flux cli
+      shell: "curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.5.1 bash"
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 10
+      delay: 3
+    # - name: Debug
+    #   debug:
+    #     var: _repo_add
+
+    - name: Create bootstrap-flux.sh
+      ansible.builtin.copy:
+        dest: "/root/gitlab_create_user.rb"
+        content: |
+          flux bootstrap gitlab \
+            --deploy-token-auth \
+            --owner={{ gitlab_username }} \
+            --repository=flux-config \
+            --branch=master \
+            --path=clusters/k8s-local \
+            --personal
+        owner: root
+        group: root
+        mode: '0755'
+      environment:
+        GITLAB_TOKEN: "{{ gitlab_token }}"
+
+
+- hosts: mon
+  gather_facts: False
+  vars:
+    gitlab_token: "MYG1TL4B4$$3SST0K3N"
+    gitlab_password: "g1tl4b_p4$$w0rd"
+    gitlab_username: "gitlab_admin"
+    secret_ca_passphrase: "v3ry$3cr37"
+    ssh_key_path: "/root/.ssh/id_rsa"
+  become: true
+  tasks:
+    - name: Create a directory if it does not exist
+      ansible.builtin.file:
+        path: /var/contain/vdb1/run/containers/storage
+        state: directory
+        mode: '0755'
+    - name: Mount larger volume for containers (change fstab)
+      ansible.posix.mount:
+        path: /var/contain/vdb1
+        src: /dev/disk/by-label/CONT
+        fstype: xfs
+        opts: defaults
+        state: present
+
+    - name: Install prerequisites
+      community.general.rpm_ostree_pkg:
+        name:
+        - docker
+        - git
+        - python3-packaging
+        - python3-requests
+        - python3-yaml
+        - python3-cryptography
+        state: present
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+
+    - name: Create a directory if it does not exist
+      ansible.builtin.file:
+        path: /etc/docker
+        state: directory
+        mode: '0755'
+    - name: Override docker config
+      ansible.builtin.copy:
+        src: ./files/docker.conf.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Reboot!
+      ansible.builtin.reboot:
+
+    - name: create directory for repos
+      ansible.builtin.file:
+        path: /var/repos/
+        state: directory
+        mode: '0755'
+    - name: Remove a directory
+      ansible.builtin.file:
+        path: /var/repos/my-webapp
+        state: absent
+    - name: Remove a directory
+      ansible.builtin.file:
+        path: /var/repos/podinfo
+        state: absent
+    # - name: copy repo
+    #   ansible.builtin.copy:
+    #     src: ./files/test-web-application/
+    #     dest: /var/repos/my-webapp/
+    #     owner: "root"
+    #     group: "root"
+    #     mode: "0644"
+    - name: clone podinfo web application
+      command: git clone --single-branch --branch v6.x https://github.com/stefanprodan/podinfo.git
+      args:
+        chdir: "/var/repos"
+      register: _repo_add
+      retries: 5
+      delay: 10
+
+    - name: Stop and remove existing GitLab container
+      docker_container:
+        name: gitlab-local-0
+        state: absent
+        force_kill: yes
+
+    - name: Get running containers
+      docker_host_info:
+        containers: yes
+      register: docker_info
+
+    - name: Stop running containers
+      docker_container:
+        name: "{{ item }}"
+        state: stopped
+      loop: "{{ docker_info.containers | map(attribute='Id') | list }}"
+
+    - name: Remove all Docker unused objects
+      command: docker system prune -a --volumes -f
+
+    - name: Ensure GitLab data directories are removed
+      file:
+        path: "/var/contain/vdb1/gitlab"
+        state: absent
+
+    - name: Run GitLab container
+      docker_container:
+        name: gitlab-local-0
+        image: "gitlab/gitlab-ce:17.10.0-ce.0"
+        state: started
+        detach: yes
+        restart_policy: always
+        published_ports:
+          - "443:443"
+          - "8880:80"
+          - "2222:22"
+        volumes:
+          - "/var/contain/vdb1/gitlab/config:/etc/gitlab"
+          - "/var/contain/vdb1/gitlab/logs:/var/log/gitlab"
+          - "/var/contain/vdb1/gitlab/data:/var/opt/gitlab"
+        shm_size: "2GB"
+        cpus: 2
+        hostname: 'coreos04.k8s.local'
+      register: _debug
+      until: _debug.failed is not true
+      retries: 5
+      delay: 3
+    # - name: Debug
+    #   debug:
+    #     var: _debug
+
+
+    ################################
+    ### ADD USER
+    ################################
+    - name: Create a temporary script on the host
+      copy:
+        dest: "/tmp/gitlab_create_user.rb"
+        content: |
+          existing_user = User.find_by_username('{{ gitlab_username }}')
+          
+          if existing_user
+            puts "User {{ gitlab_username }} already exists"
+          else
+            response = Users::CreateService.new(nil,
+              username: '{{ gitlab_username }}',
+              email: '{{ gitlab_username }}@example.com',
+              name: '{{ gitlab_username }}',
+              password: '{{ gitlab_password }}',
+              password_confirmation: '{{ gitlab_password }}',
+              organization_id: Organizations::Organization.first.id,
+              skip_confirmation: true
+            ).execute
+          
+            if response.success?
+              user = response.payload[:user]  # Extract the user object
+              puts "User created: #{user.username}"
+            else
+              puts "Failed to create user: #{response.message}"
+            end
+          end
+    - name: Copy a file into the container
+      community.docker.docker_container_copy_into:
+        container: gitlab-local-0
+        path: /tmp/gitlab_create_user.rb
+        container_path: /tmp/gitlab_create_user.rb
+
+    - name: Create user within the GL container
+      community.docker.docker_container_exec:
+        container: gitlab-local-0
+        command: gitlab-rails runner /tmp/gitlab_create_user.rb
+      register: _debug
+      until: _debug.failed is not true
+      retries: 10
+      delay: 15
+    - name: Debug
+      debug:
+        var: _debug
+      # register: _install_package
+      # until: _install_package.failed is not true
+      # # ignore_errors: true
+      # retries: 5
+      # delay: 3
+
+    - name: Clean up script from the container
+      community.docker.docker_container_exec:
+        container: gitlab-local-0
+        command: rm /tmp/gitlab_create_user.rb
+
+    - name: Remove temporary script from the host
+      file:
+        path: "/tmp/gitlab_create_user.rb"
+        state: absent
+
+
+
+    ################################
+    ### ADD TOKEN
+    ################################
+    # user = User.find_by_username('{{ gitlab_username }}')
+    # token = user.personal_access_tokens.create(scopes: ['read_user', 'k8s_proxy','read_repository','write_repository','api'], name: 'Automation token', expires_at: 365.days.from_now)
+    # # scopes: ['read_user', 'k8s_proxy', 'write_repository', 'api', 'manage_runner', 'create_runner', 'admin_mode', 'sudo', 'write_registry'],
+    # token.set_token('{{ gitlab_token }}')
+    # token.save!
+    - name: Create a temporary script on the host
+      copy:
+        dest: "/tmp/gitlab_add_token.rb"
+        content: |
+          user = User.find_by_username('{{ gitlab_username }}')
+          existing_token = user.personal_access_tokens.find_by(name: 'Automation token')
+          if existing_token.nil?
+            token = user.personal_access_tokens.create(
+              scopes: ['read_user','k8s_proxy','write_repository','api'],
+              name: 'Automation token',
+              expires_at: 365.days.from_now
+            )
+            token.set_token('{{ gitlab_token }}')
+            token.save!
+            puts "New token created successfully"
+          else
+            puts "Token already exists"
+          end
+
+
+    - name: Copy a file into the container
+      community.docker.docker_container_copy_into:
+        container: gitlab-local-0
+        path: /tmp/gitlab_add_token.rb
+        container_path: /tmp/gitlab_add_token.rb
+
+    - name: Create token within the GL container
+      community.docker.docker_container_exec:
+        container: gitlab-local-0
+        command: gitlab-rails runner /tmp/gitlab_add_token.rb
+      register: _debug
+      until: _debug.failed is not true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _debug
+      # register: _install_package
+      # until: _install_package.failed is not true
+      # # ignore_errors: true
+      # retries: 5
+      # delay: 3
+
+    - name: Clean up script from the container
+      community.docker.docker_container_exec:
+        container: gitlab-local-0
+        command: rm /tmp/gitlab_add_token.rb
+
+    - name: Remove temporary script from the host
+      file:
+        path: "/tmp/gitlab_add_token.rb"
+        state: absent
+
+
+
+    # - name: Retrieve GitLab initial root password
+    #   community.docker.docker_container_exec:
+    #     container: gitlab-local-0
+    #     command: grep 'Password:' /etc/gitlab/initial_root_password
+    #   register: gitlab_password_output
+    #
+    # - name: Show GitLab root password
+    #   debug:
+    #     msg: "{{ gitlab_password_output.stdout }}"
+
+
+    - name: Create private key with password protection
+      community.crypto.openssl_privatekey:
+        path: /etc/ssl/coolcorp.key
+        passphrase: "{{ secret_ca_passphrase }}"
+
+    - name: Create certificate signing request (CSR) for CA certificate
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: /etc/ssl/coolcorp.key
+        privatekey_passphrase: "{{ secret_ca_passphrase }}"
+        common_name: Ansible CA
+        use_common_name_for_san: false  # since we do not specify SANs, don't use CN as a SAN
+        basic_constraints:
+          - 'CA:TRUE'
+        basic_constraints_critical: true
+        key_usage:
+          - keyCertSign
+        key_usage_critical: true
+      register: ca_csr
+
+    - name: Create self-signed CA certificate from CSR
+      community.crypto.x509_certificate:
+        path: /etc/ssl/certs/coolcorp.pem
+        csr_content: "{{ ca_csr.csr }}"
+        privatekey_path: /etc/ssl/coolcorp.key
+        privatekey_passphrase: "{{ secret_ca_passphrase }}"
+        provider: selfsigned
+
+
+    - name: Generate private key if not exists
+      community.crypto.openssl_privatekey:
+        path: /root/coreos04.k8s.local.key
+        size: 2048
+        state: present
+
+    - name: Create certificate signing request (CSR) for gitlab cert
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: /root/coreos04.k8s.local.key
+        common_name: coreos04.k8s.local 
+        organization_name: Coolcorp, Inc.
+        subject_alt_name:
+          - "DNS:coreos04.k8s.local"
+          - "DNS:kas.coreos04.k8s.local"
+      register: csr
+
+    - name: Create self-signed certificate from CSR
+      community.crypto.x509_certificate:
+        path: /root/coreos04.k8s.local.pem
+        csr_content: "{{ csr.csr }}"
+        privatekey_path: /root/coreos04.k8s.local.key
+        provider: ownca
+        ownca_path: /etc/ssl/certs/coolcorp.pem
+        ownca_privatekey_path: /etc/ssl/coolcorp.key
+        ownca_privatekey_passphrase: "{{ secret_ca_passphrase }}"
+
+    - name: Copy the key into the container
+      community.docker.docker_container_copy_into:
+        container: gitlab-local-0
+        path: /root/coreos04.k8s.local.key
+        container_path: /etc/gitlab/coreos04.k8s.local.key
+    - name: Copy the cert into the container
+      community.docker.docker_container_copy_into:
+        container: gitlab-local-0
+        path: /root/coreos04.k8s.local.pem
+        container_path: /etc/gitlab/coreos04.k8s.local.pem
+
+    - name: Push certificates inside GL container
+      community.docker.docker_container_exec:
+        container: gitlab-local-0
+        command: /bin/bash -c "[ -d /etc/gitlab/ssl ] || mkdir /etc/gitlab/ssl && chmod 755 /etc/gitlab/ssl && mv -t /etc/gitlab/ssl/ /etc/gitlab/coreos04.k8s.local.pem /etc/gitlab/coreos04.k8s.local.key"
+      register: _debug
+      until: _debug.failed is not true
+      retries: 5
+      delay: 3
+
+
+    - name: Copy gitlab.rb inside the machine
+      ansible.builtin.copy:
+        src: ./files/gitlab.rb
+        dest: /tmp/gitlab.rb
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Copy gitlab.rb into the container
+      community.docker.docker_container_copy_into:
+        container: gitlab-local-0
+        path: /tmp/gitlab.rb
+        container_path: /etc/gitlab/gitlab.rb
+
+
+    - name: Execute gitlab-ctl reconfigure
+      community.docker.docker_container_exec:
+        container: gitlab-local-0
+        command: gitlab-ctl reconfigure
+      register: _debug
+      until: _debug.failed is not true
+      retries: 5
+      delay: 3
+
+
+    - name: Fetch CA cert from mon to control node
+      ansible.builtin.fetch:
+        src: /etc/ssl/certs/coolcorp.pem
+        dest: /tmp/coolcorp.pem
+        flat: yes
+    - name: Copy CA cert to a dedicated directory
+      copy:
+        src: /tmp/coolcorp.pem
+        dest: /etc/pki/ca-trust/source/anchors/coolcorp.pem
+        owner: root
+        group: root
+        mode: '0644'
+    - name: update CA trust
+      shell: update-ca-trust
+      register: _debug
+      # ignore_errors: true
+    - name: Debug
+      debug:
+        var: _debug
+
+
+    - name: Wait for GitLab to become available
+      uri:
+        url: "https://coreos04.k8s.local/users/sign_in"
+        method: GET
+        status_code: 200
+      register: gitlab_status
+      retries: 30
+      delay: 10
+      until: gitlab_status.status == 200
+
+
+
+
+
+      ###################
+      ### PUSH KEYS
+      ###################
+    # - name: Get GitLab user ID by username
+    #   uri:
+    #     url: "https://coreos04.k8s.local/api/v4/users?username={{ gitlab_username }}"
+    #     method: GET
+    #     headers:
+    #       PRIVATE-TOKEN: "{{ gitlab_token }}"
+    #     return_content: yes
+    #   register: gitlab_user_response
+    #
+    # - name: Extract user ID
+    #   set_fact:
+    #     gitlab_user_id: "{{ gitlab_user_response.json[0].id }}"
+    #   when: gitlab_user_response.json | length > 0
+
+    - name: Generate SSH key pair
+      ansible.builtin.openssh_keypair:
+        path: "/root/.ssh/gitlab_admin"
+        size: 2048
+        type: rsa
+        force: true
+      register: ssh_key_pair
+    - name: change key permissions
+      ansible.builtin.file:
+        path: "/root/.ssh/gitlab_admin"
+        mode: '0600'
+
+    - name: Define SSH public key
+      set_fact:
+        ssh_pub_key: "{{ ssh_key_pair.public_key }}"
+
+        # curl -d '{"title":"test key","key":" {{ ssh_key }} "}' -H 'Content-Type: application/json' https://coreos04.k8s.local/api/v4/user/keys?private_token='{{ gitlab_token }}
+    - name: Add SSH key to the user
+      uri:
+        url: "https://coreos04.k8s.local/api/v4/user/keys?private_token={{ gitlab_token }}"
+        method: POST
+        headers:
+          Content-Type: "application/json"
+        body: '{"title": "test key", "key": "{{ ssh_pub_key }}"}'
+        body_format: json
+        status_code: 201
+      register: result
+
+    - name: Print result of key addition
+      debug:
+        msg: "{{ result }}"
+
+
+    ### {https://docs.gitlab.com/api/projects/}
+    - name: Check if GitLab project exists
+      uri:
+        url: "https://coreos04.k8s.local/api/v4/projects?search=podinfo"
+        method: GET
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_token }}"
+        return_content: yes
+      register: check_project_response
+
+    - name: Create a new project in GitLab
+      uri:
+        url: "https://coreos04.k8s.local/api/v4/projects/"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_token }}"
+          Content-Type: "application/json"
+        body:
+          name: "podinfo"
+          description: "Test project"
+          path: "podinfo"
+          initialize_with_readme: false
+        body_format: json
+        status_code: 201
+      when: check_project_response.json | length == 0
+      register: create_project_response
+      retries: 30
+      delay: 10
+      until: gitlab_status.status == 200
+
+    - name: Ensure the local repository exists
+      stat:
+        path: "/var/repos/podinfo/.git"
+      register: git_repo_stat
+
+    - name: Initialize git in the local webapp repository if not already initialized
+      command: git init
+      args:
+        chdir: "/var/repos/podinfo"
+      when: not git_repo_stat.stat.exists
+
+    # - name: Check if the remote repository is already set
+    #   command: git remote get-url origin
+    #   args:
+    #     chdir: "/var/repos/podinfo"
+    #   register: git_remote_check
+    #   ignore_errors: yes  # Avoid failing if remote is not set
+
+    - name: remove origin
+      command: git remote remove origin
+      args:
+        chdir: "/var/repos/podinfo"
+      ignore_errors: yes
+    - name: Add the remote GitLab repository if not already set
+      command: git remote add origin 'git@coreos04.k8s.local:gitlab_admin/podinfo.git'
+      args:
+        chdir: "/var/repos/podinfo"
+      # when: git_remote_check.rc != 0
+
+    - name: add ssh config
+      ansible.builtin.copy:
+        content: |
+          Host coreos04.k8s.local
+            HostName coreos04.k8s.local
+            IdentityFile /root/.ssh/gitlab_admin
+            Port 2222
+            StrictHostKeyChecking no
+        dest: /root/.ssh/config
+
+    - name: Add files to git
+      command: git add --all
+      args:
+        chdir: "/var/repos/podinfo"
+
+    - name: Configure Git user if not already set
+      command: "{{ item }}"
+      with_items:
+        - git config --global user.email "gitlab_admin@example.com"
+        - git config --global user.name "gitlab_admin"
+      ignore_errors: yes  # Ignore errors in case it's already configured
+
+    - name: Check if there are changes to commit
+      command: git status
+      args:
+        chdir: "/var/repos/podinfo"
+      register: _git_status
+      # ignore_errors: true
+    - name: Debug
+      debug:
+        var: _git_status
+
+    # - name: Commit the changes to git (if any)
+    #   command: git commit -m "Initial commit"
+    #   args:
+    #     chdir: "/var/repos/podinfo"
+    #   when: _git_status.stdout != ""
+    #   register: git_commit
+    #   failed_when: git_commit.rc != 0 and 'nothing to commit' not in git_commit.stderr
+
+    - name: create main branch
+      shell: git checkout -b main v6.x
+      args:
+        chdir: "/var/repos/podinfo"
+
+    - name: Check if known_hosts file exists
+      stat:
+        path: /root/.ssh/known_hosts
+      register: known_hosts_stat
+    
+    - name: Clear the authorized_keys if known_hosts exists
+      command: sed -i '/coreos04.k8s.local/d' /root/.ssh/known_hosts
+      when: known_hosts_stat.stat.exists
+
+    - name: Push to GitLab repository
+      command: git push origin main
+      args:
+        chdir: "/var/repos/podinfo"
+      when: _git_status.stdout != ""
+
+    - name: Create a deploy token for podinfo
+      uri:
+        url: "https://coreos04.k8s.local/api/v4/projects/1/deploy_tokens/"
+        method: POST
+        headers:
+          PRIVATE-TOKEN: "{{ gitlab_token }}"
+          Content-Type: "application/json"
+        body:
+          name: "Flux deploy token"
+          username: "flux-user"
+          scopes:
+            - "read_repository"
+          initialize_with_readme: false
+        body_format: json
+        status_code: 201
+      register: create_project_response
+      retries: 3
+      delay: 10
+
+    - name: set deploy token as a fact
+      set_fact:
+        deploy_token: "{{ create_project_response.json.token }}"
+        cacheable: true  # Makes it available across plays
+    - name: Display the deploy token
+      debug:
+        var: deploy_token
+
+
+    - name: Fetch ssh key from mon to host
+      ansible.builtin.fetch:
+        src: /root/.ssh/gitlab_admin
+        dest: /tmp/gitlab_admin
+        flat: yes
+
+
+- hosts: cp
+  become: true
+  vars:
+    gitlab_token: "MYG1TL4B4$$3SST0K3N"
+    gitlab_password: "g1tl4b_p4$$w0rd"
+    gitlab_username: "gitlab_admin"
+  tasks:
+    # - name: Copy CA cert from mon to cp
+    #   synchronize:
+    #     src: /etc/ssl/certs/coolcorp.pem
+    #     dest: /etc/ssl/certs/coolcorp.pem
+    #     mode: pull
+    #   delegate_to: 192.168.122.104
+    - name: Copy CA cert from control node to cp
+      copy:
+        src: /tmp/coolcorp.pem
+        dest: /etc/pki/ca-trust/source/anchors/coolcorp.pem
+        owner: root
+        group: root
+        mode: '0644'
+    - name: update CA trust
+      shell: update-ca-trust
+      register: _debug
+      # ignore_errors: true
+    - name: Debug
+      debug:
+        var: _debug
+
+    - name: Slurp CA cert file contents
+      slurp:
+        src: /etc/pki/ca-trust/source/anchors/coolcorp.pem
+      register: cert_file
+
+    # kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
+    - name: Execute bootstrap flux
+      shell: KUBECONFIG=/etc/kubernetes/admin.conf GITLAB_TOKEN='{{ gitlab_token }}' flux bootstrap gitlab --hostname=https://coreos04.k8s.local --deploy-token-auth --owner='{{ gitlab_username }}' --repository=flux-config --branch=master --path=clusters/k8s-local --personal --ca-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem
+      register: _repo_add
+      retries: 5
+      delay: 10
+      # ignore_errors: true
+    - name: Debug
+      debug:
+        var: _repo_add
+
+
+    - name: Copy ssh key to cp node
+      copy:
+        src: /tmp/gitlab_admin
+        dest: /root/.ssh/gitlab_admin
+        owner: root
+        group: root
+        mode: '0600'
+    - name: create directory for repos
+      ansible.builtin.file:
+        path: /var/repos/
+        state: directory
+        mode: '0755'
+    - name: add ssh config
+      ansible.builtin.copy:
+        content: |
+          Host coreos04.k8s.local
+            HostName coreos04.k8s.local
+            IdentityFile /root/.ssh/gitlab_admin
+            Port 2222
+            StrictHostKeyChecking no
+        dest: /root/.ssh/config
+    - name: Remove a directory
+      ansible.builtin.file:
+        path: /var/repos/flux-config
+        state: absent
+
+    - name: Configure Git user if not already set
+      command: "{{ item }}"
+      with_items:
+        - git config --global user.email "gitlab_admin@example.com"
+        - git config --global user.name "gitlab_admin"
+      ignore_errors: yes  # Ignore errors in case it's already configured
+
+    - name: Check if known_hosts file exists
+      stat:
+        path: /root/.ssh/known_hosts
+      register: known_hosts_stat
+    
+    - name: Clear the authorized_keys if known_hosts exists
+      command: sed -i '/coreos04.k8s.local/d' /root/.ssh/known_hosts
+      when: known_hosts_stat.stat.exists
+
+    - name: clone the fluxCD config repo locally
+      command: git clone git@coreos04.k8s.local:gitlab_admin/flux-config.git
+      args:
+        chdir: "/var/repos"
+      register: _debug
+      retries: 5
+      delay: 5
+    - name: debug
+      debug:
+        var: _debug
+
+    # flux-podinfo-secret
+    - name: create secret
+      shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create secret git flux-podinfo-secret --url=https://coreos04.k8s.local/gitlab_admin/podinfo --namespace=flux-system --username='flux-user' --ca-crt-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem --password='{{ hostvars['mon1'].deploy_token }}'
+
+    - name: Add podinfo repository to flux
+      shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create source git podinfo --url=https://coreos04.k8s.local/gitlab_admin/podinfo --branch=main --secret-ref flux-podinfo-secret --interval=1m --export > ./clusters/k8s-local/podinfo-source.yaml
+      retries: 5
+      delay: 10
+      register: _debug
+      args:
+        chdir: "/var/repos/flux-config"
+    - name: debug
+      debug:
+        var: _debug
+
+    - name: update flux config repo
+      shell: git add -A && git commit -m "Add podinfo GitRepository" && git push
+      args:
+        chdir: "/var/repos/flux-config"
+      ignore_errors: true
+
+    - name: create kustomization
+      shell:  KUBECONFIG=/etc/kubernetes/admin.conf flux create kustomization podinfo --target-namespace=default --source=podinfo --path="./kustomize" --prune=true --wait=true --interval=30m --retry-interval=2m --health-check-timeout=3m --export > ./clusters/k8s-local/podinfo-kustomization.yaml
+      args:
+        chdir: "/var/repos/flux-config"
+      register: _debug
+    - name: debug
+      debug:
+        var: _debug
+
+    - name: update flux config repo
+      shell: git add -A && git commit -m "Add podinfo Kustomization" && git push
+      args:
+        chdir: "/var/repos/flux-config"
+      ignore_errors: true
+
+
+    # - name: download glab archive
+    #   shell: curl -LO https://gitlab.com/gitlab-org/cli/-/releases/v1.55.0/downloads/glab_1.55.0_linux_amd64.tar.gz
+    #   args:
+    #     chdir: "/root/"
+    # - name: unpack glab
+    #   shell: tar xvzf /root/glab_1.55.0_linux_amd64.tar.gz
+    # - name: set glab host
+    #   shell: glab config set -g host coreos04.k8s.local
+    # - name: set glab CA cert checking
+    #   shell: glab config set ca_cert /etc/pki/ca-trust/source/anchors/coolcorp.pem --host coreos04.k8s.local
+    # - name: run glab k8s cluster agent bootstrap
+    #   shell: GITLAB_TOKEN='{{ gitlab_token }}' glab cluster agent bootstrap --manifest-path clusters/k8s-local glab-agent
+    #   register: _debug
+    #   until: _debug.failed is not true
+    #   # ignore_errors: true
+    #   retries: 4
+    #   delay: 10
+
+# flux get kustomizations
+# kubectl get deployments,services

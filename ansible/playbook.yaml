@@ -1,0 +1,766 @@
+---
+- hosts: all
+  gather_facts: False
+  tasks:
+    - name: Wait for 5 minutes
+      pause:
+        minutes: 5
+    - name: install python3
+      raw: test -e /usr/bin/python3 || ( sudo /usr/bin/rpm-ostree install -y --apply-live --allow-inactive python3 libselinux-python3)
+
+- hosts: all
+  tasks:
+    - name: Disable selinux (required reboot)
+      selinux:
+        state=disabled
+
+
+- hosts:
+  - cp
+  - dp
+  tasks:
+    - name: Install kubelet, kubectl, cri-o & cri-tools
+      community.general.rpm_ostree_pkg:
+        name:
+        - wget
+        - kubeadm
+        - kubelet
+        - kubectl
+        - parted
+        - cri-tools
+        - cri-o
+        - python3-yaml
+        - rsync
+        - sshpass
+        state: present
+
+    - name: Reboot!
+      ansible.builtin.reboot:
+
+
+- hosts:
+    - cp
+    - dp
+  tasks:
+    - name: Enable service kubelet
+      ansible.builtin.systemd_service:
+        name: kubelet
+        enabled: true
+
+- hosts: dp
+  become: true
+  tasks:
+    # / is mounted ro, so create under /var
+    - name: Create a directory if it does not exist
+      ansible.builtin.file:
+        path: /var/contain/vdb1/run/containers/storage
+        state: directory
+        mode: '0755'
+    - name: Create a directory if it does not exist
+      ansible.builtin.file:
+        path: /var/contain/vdb1/lib/containers/storage
+        state: directory
+        mode: '0755'
+    # - name: Create a new xfs primary partition
+    #   community.general.parted:
+    #     device: /dev/vdb
+    #     number: 1
+    #     state: present
+    #     fs_type: xfs
+    - name: Mount larger volume for containers (change fstab)
+      ansible.posix.mount:
+        path: /var/contain/vdb1
+        src: /dev/disk/by-label/CONT
+        fstype: xfs
+        opts: defaults
+        state: present
+
+    - name: Copy crio.conf to avoid DiskPressure
+      ansible.builtin.copy:
+        src: ./files/crio.conf
+        dest: /etc/crio/crio.conf
+        owner: root
+        group: root
+        mode: '0644'
+    # # saves to fstab
+    # - name: Mount and bind a volume
+    #   ansible.posix.mount:
+    #     src: /var
+    #     path: /mnt/vdb1/var
+    #     opts: bind
+    #     state: mounted
+    #     fstype: none
+
+- hosts:
+    - cp
+    - dp
+  tasks:
+    - name: Ensure systemd override directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/crio.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Override crio ExecStart with custom config
+      ansible.builtin.copy:
+        content: |
+          [Service]
+          Before=
+          Before=kubelet.service
+          ExecStart=
+          ExecStart=/usr/bin/crio --config /etc/crio/crio.conf --log-level debug
+        dest: /etc/systemd/system/crio.service.d/override.conf
+
+    - name: Reload systemd to apply override
+      systemd:
+        daemon_reload: yes
+    - name: Enable and start crio
+      ansible.builtin.systemd_service:
+        name: crio
+        enabled: true
+        state: started
+
+
+- hosts: cp
+  become: true
+  tasks: 
+    - name: Install Helm
+      community.general.rpm_ostree_pkg:
+        name:
+        - helm
+        state: present
+
+    - name: Reboot!
+      ansible.builtin.reboot:
+      register: _debug
+      until: _debug.failed is not true
+      # ignore_errors: true
+      retries: 10
+      delay: 3
+
+    - name: Copy .bashrc file to remote hosts
+      ansible.builtin.copy:
+        src: ./files/bashrc
+        dest: /root/.bashrc
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: Copy krew.sh
+      ansible.builtin.copy:
+        src: ./files/krew.sh
+        dest: /root/krew.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Execute krew.sh script
+      shell: /root/krew.sh
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 10
+      delay: 3
+
+    - name: install krew ceph plugin
+      shell: source /root/.bashrc && kubectl krew install rook-ceph
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+
+
+- hosts: cp
+  tasks:
+    - name: Copy clusterconfig
+      ansible.builtin.copy:
+        src: ./files/clusterconfig.yaml
+        dest: /root/clusterconfig.yaml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Reset K8s if needed
+      ansible.builtin.command: kubeadm reset -f
+
+    - name: Initialize K8s
+      ansible.builtin.command: kubeadm init --config /root/clusterconfig.yaml
+
+    - name: Get kubeadm join command with tokens
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_command
+
+    - name: set global join_command
+      delegate_to: localhost
+      delegate_facts: true
+      ansible.builtin.set_fact:
+        join_command: "{{ join_command.stdout }}"
+
+    - name: Print kubeadm join command with tokens
+      ansible.builtin.debug:
+        var: join_command
+
+    - name: Get /etc/kubernetes/admin.conf
+      ansible.builtin.slurp:
+        src: /etc/kubernetes/admin.conf
+      register: kube_config
+
+    - name: Print kube_config
+      ansible.builtin.debug:
+        var: "{{ kube_config.content | b64decode }}"
+
+    - name: set global kube_config
+      delegate_to: localhost
+      delegate_facts: true
+      ansible.builtin.set_fact:
+        kube_config: "{{ kube_config }}"
+
+
+- hosts: dp
+  tasks:
+    - name: Reset K8s if needed
+      ansible.builtin.command: kubeadm reset -f
+
+    - name: Execute kubeadm join
+      ansible.builtin.command: "{{ hostvars.localhost.join_command }}"
+      register: join_command_output
+
+    - name: Print kubeadm join output
+      ansible.builtin.debug:
+        var: join_command_output.stdout
+
+
+- hosts: all
+  tasks:
+    - name: Reboot!
+      ansible.builtin.reboot:
+
+    - name: ping
+      ansible.builtin.ping:
+
+
+- hosts: cp
+  become: true
+  gather_facts: true
+  vars_files:
+    - ./vars.yml
+  tasks:
+    - name: Install pip
+      community.general.rpm_ostree_pkg:
+        name:
+        - pip
+        - python3-packaging
+        state: present
+
+    - name: Reboot!
+      ansible.builtin.reboot:
+
+    - name: Ensure needed pip packages are present
+      ansible.builtin.pip:
+        executable: pip3
+        name:
+          - pyyaml
+          - jsonpatch
+          - kubernetes
+
+    - name: Add Cilium Helm repository
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 15
+      delay: 3
+      kubernetes.core.helm_repository:
+        name: cilium
+        repo_url: "https://helm.cilium.io"
+    - name: Debug
+      debug:
+        var: _repo_add
+    - name: Install Cilium
+      kubernetes.core.helm:
+        name: cilium
+        chart_ref: cilium/cilium
+        chart_version: "1.17.0"
+        release_namespace: kube-system
+        create_namespace: true
+        state: present
+        kubeconfig: /etc/kubernetes/admin.conf
+        update_repo_cache: true
+        # -f, --values
+        values:
+          ipam:
+            mode: kubernetes
+        wait: true
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+    - name: Add cilium.sh
+      ansible.builtin.copy:
+        src: ./files/cilium.sh
+        dest: /root/cilium.sh
+        owner: root
+        group: root
+        mode: '0755'
+    - name: Execute cilium.sh script
+      script: files/cilium.sh
+      register: _debug
+      until: _debug.failed is not true
+      # ignore_errors: true
+      retries: 10
+      delay: 3
+
+    - name: Add Kyverno Helm repository
+      kubernetes.core.helm_repository:
+        name: kyverno
+        repo_url: "https://kyverno.github.io/kyverno/"
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _repo_add
+    - name: Install Kyverno
+      kubernetes.core.helm:
+        name: kyverno
+        chart_ref: kyverno/kyverno
+        chart_version: "3.3.7"
+        release_namespace: kyverno
+        create_namespace: true
+        state: present
+        kubeconfig: /etc/kubernetes/admin.conf
+        update_repo_cache: true
+        wait: true
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+
+    # - name: Add display-creds.sh
+    #   ansible.builtin.copy:
+    #     src: ./files/display-creds.sh
+    #     dest: /root/display-creds.sh
+    #     owner: root
+    #     group: root
+    #     mode: '0755'
+    # - name: Execute display-creds.sh
+    #   ansible.builtin.command: /root/display-creds.sh
+    #   become: true
+    #   register: display_creds_output
+    #   changed_when: display_creds_output.rc != 0
+    # - name: Debug script output
+    #   ansible.builtin.debug:
+    #     msg: "{{ display_creds_output.stdout_lines | default('No output') }}"
+    # - name: Debug script errors
+    #   ansible.builtin.debug:
+    #     msg: "{{ display_creds_output.stderr_lines | default('No errors') }}"
+
+    # see *CUSTOM*
+    - name: Add rook-values.yaml
+      ansible.builtin.copy:
+        src: ./files/rook-values.yaml
+        dest: /root/rook-values.yaml
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Add Rook Helm repository
+      kubernetes.core.helm_repository:
+        name: rook-release
+        repo_url: "https://charts.rook.io/release"
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _repo_add
+
+        # helm install rook-ceph rook-release/rook-ceph --create-namespace --namespace rook-ceph --values ./rook-values.yaml --debug
+    - name: Install Rook operator
+      kubernetes.core.helm:
+        name: rook-ceph
+        chart_ref: rook-release/rook-ceph
+        chart_version: "v1.16.5"
+        release_namespace: rook-ceph
+        update_repo_cache: true
+        wait: true
+        create_namespace: true
+        kubeconfig: /etc/kubernetes/admin.conf
+        # -f, --values [file.yaml]
+        values_files:
+          - /root/rook-values.yaml
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+    - name: Install Rook cluster
+      kubernetes.core.helm:
+        name: rook-ceph-cluster
+        chart_ref: rook-release/rook-ceph-cluster
+        chart_version: "v1.16.5"
+        release_namespace: rook-ceph
+        update_repo_cache: true
+        wait: true
+        create_namespace: true
+        kubeconfig: /etc/kubernetes/admin.conf
+        # -f, --values [file.yaml]
+        values:
+          operatorNamespace: "rook-ceph"
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+
+        # api_version: rbac.authorization.k8s.io/v1
+    - name: add permission for rook-ceph-system to manage endpointslices
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: patched
+        namespace: rook-ceph
+        name: rook-ceph-system
+        kind: ClusterRole
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: rook-ceph-system
+          rules:
+            - apiGroups:
+                - "discovery.k8s.io"
+              resources:
+                - "endpointslices"
+              verbs:
+                - "create"
+                - "get"
+                - "list"
+                - "watch"
+                - "update"
+                - "patch"
+                - "delete"
+      register: _patch_cluster
+      until: _patch_cluster.failed is not true
+      retries: 5
+      delay: 3
+
+    - name: Enable allowMultiplePerNode in CephCluster
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: patched
+        namespace: rook-ceph
+        kind: CephCluster
+        name: rook-ceph
+        definition:
+          spec:
+            mon:
+              allowMultiplePerNode: true
+      register: _patch_cluster
+      until: _patch_cluster.failed is not true
+      retries: 5
+      delay: 3
+
+    # Will automatically create PVs
+    - name: Create rook-ceph block pool
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: present
+        definition:
+          apiVersion: ceph.rook.io/v1
+          kind: CephBlockPool
+          metadata:
+            name: replicapool0
+            namespace: rook-ceph
+          spec:
+            failureDomain: host
+            replicated:
+              # number of nodes that can store replicas (node being a CP master is considered a taint!)
+              size: 2
+      register: _obj_add
+      until: _obj_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _obj_add
+
+    - name: Create rook-ceph storageClass
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: present
+        definition:
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+             name: rook-ceph-block
+          # Change "rook-ceph" provisioner prefix to match the operator namespace if needed
+          provisioner: rook-ceph.rbd.csi.ceph.com
+          parameters:
+              # clusterID is the namespace where the rook cluster is running
+              clusterID: rook-ceph
+              # Ceph pool into which the RBD image shall be created
+              pool: replicapool0 
+              # RBD image format. Defaults to "2".
+              imageFormat: "2" 
+              # RBD image features. Available for imageFormat: "2". CSI RBD currently supports only `layering` feature.
+              imageFeatures: layering 
+              # The secrets contain Ceph admin credentials.
+              csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+              csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+              csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+              csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph 
+              # Specify the filesystem type of the volume. If not specified, csi-provisioner
+              # will set default as `ext4`.
+              csi.storage.k8s.io/fstype: xfs
+              allowVolumeExpansion: "false"
+          # Delete the rbd volume when a PVC is deleted
+          reclaimPolicy: Delete
+      register: _obj_add
+      until: _obj_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _obj_add
+
+    - name: Add monitoring namespace for Grafana
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/kubernetes/admin.conf
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: monitoring
+
+    - name: Create rook-ceph PVC for prometheus
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: present
+        definition:
+          kind: PersistentVolumeClaim
+          apiVersion: v1
+          metadata:
+            name: prometheus-datadir-0
+            namespace: monitoring
+          spec:
+            storageClassName: rook-ceph-block
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi
+      register: _obj_add
+      until: _obj_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _obj_add
+    # - name: Create PVC for alertmanager with Rook-Ceph
+    #   kubernetes.core.k8s:
+    #     api_version: v1
+    #     kind: PersistentVolumeClaim
+    #     namespace: monitoring
+    #     name: storage-prometheus-alertmanager-0
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: PersistentVolumeClaim
+    #       metadata:
+    #         name: storage-prometheus-alertmanager-0
+    #       spec:
+    #         accessModes:
+    #           - ReadWriteOnce
+    #         resources:
+    #           requests:
+    #             storage: 10Gi  # Adjust size as needed
+    #         storageClassName: rook-ceph-block  # Use Rook-Ceph storage class
+    # #????????
+
+
+    - name: Add Prometheus Helm repository
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: "https://prometheus-community.github.io/helm-charts"
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _repo_add
+    - name: Install Prometheus
+      kubernetes.core.helm:
+        name: prometheus
+        release_namespace: "monitoring"
+        force: true
+        wait: true
+        create_namespace: true
+        chart_ref: prometheus-community/prometheus
+        kubeconfig: /etc/kubernetes/admin.conf
+        update_repo_cache: true
+        values:
+          server:
+            persistentVolume:
+                enabled: true
+                # use rook-ceph
+                existingClaim: "prometheus-datadir-0"
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 10
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+
+    - name: Add Grafana Helm repository
+      kubernetes.core.helm_repository:
+        name: grafana
+        repo_url: "https://grafana.github.io/helm-charts"
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _repo_add
+    - name: Install Grafana
+      kubernetes.core.helm:
+        name: grafana
+        chart_ref: grafana/grafana
+        wait: true
+        release_namespace: monitoring
+        kubeconfig: /etc/kubernetes/admin.conf
+        update_repo_cache: true
+        values:
+          adminUser: "grafana_admin"
+          adminPassword: "grafana_password"
+          datasources:
+            datasources.yaml:
+              apiVersion: 1
+              datasources:
+                - name: Prometheus
+                  type: prometheus
+                  url: "http://prometheus-server.monitoring.svc.cluster.local"
+                  access: proxy
+                  isDefault: true
+          dashboards:
+            default:
+              prometheus-stats:
+                gnetId: 2
+                revision: 2
+                datasource: Prometheus
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+    - name: Debug
+      debug:
+        var: _install_package
+
+  # helm install nginx-ingress ingress-nginx/ingress-nginx --create-namespace --namespace ingress-nginx
+    - name: Add Ingress-Nginx Helm repository
+      kubernetes.core.helm_repository:
+        name: ingress-nginx
+        repo_url: "https://kubernetes.github.io/ingress-nginx"
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _repo_add
+
+    - name: Install ingress-nginx via Helm
+      kubernetes.core.helm:
+        name: nginx-ingress
+        update_repo_cache: true
+        wait: true
+        chart_ref: ingress-nginx/ingress-nginx
+        release_namespace: ingress-nginx
+        kubeconfig: /etc/kubernetes/admin.conf
+        create_namespace: true
+        values:
+          controller:
+            # fixes ingress not listening on 80 and 443
+            hostNetwork: true
+            service:
+              type: NodePort  # Change to "LoadBalancer" if using cloud
+            ingressClassResource:
+              name: nginx  # Match with ingressClassName in Ingress resource
+              enabled: true
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _install_package
+
+    # note that ingress resource is not referenced by `name`, but by `ingressClassName`
+    - name: Create global Ingress resource for ingress-nginx
+      kubernetes.core.k8s:
+        kubeconfig: /etc/kubernetes/admin.conf
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: ingress-grafana
+            namespace: monitoring
+            annotations:
+              kubernetes.io/ingress.class: nginx
+          spec:
+            ingressClassName: nginx
+            rules:
+              - host: grafana.k8s.local
+                http:
+                  paths:
+                    - pathType: Prefix
+                      path: "/"
+                      backend:
+                        service:
+                          name: grafana
+                          port:
+                            number: 80
+      register: _obj_add
+      until: _obj_add.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+    - name: Debug
+      debug:
+        var: _obj_add
+
+- import_playbook: ./0X-configure-gitlab.yaml 
+# prometheus, grafana, nginx-ingress

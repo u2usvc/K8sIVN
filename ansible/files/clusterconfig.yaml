@@ -1,0 +1,13 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: v1.30.7
+controllerManager:
+  extraArgs: # specify a R/W directory for FlexVolumes (cluster won't work without this even though we use PVs)
+    flex-volume-plugin-dir: "/etc/kubernetes/kubelet-plugins/volume/exec"
+networking: # pod subnet definition
+  podSubnet: 10.244.0.0/16
+  # default cluster.local
+  # dnsDomain: k8s.local
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
