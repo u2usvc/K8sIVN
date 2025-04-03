@@ -16,39 +16,3 @@ sudo virsh undefine --domain coreos01
 virsh pool-destroy --pool fcos_k8s_lab_pool
 virsh pool-undefine --pool fcos_k8s_lab_pool
 ```
-
-create password with `mkpasswd --method=sha-256`
-
-```bash
-cd terraform
-terraform init
-terraform apply
-cd ..
-```
-
-```bash
-cd ansible
-ansible-playbook -i inventory.ini ./cluster-setup.yaml
-```
-
-
-
-```
-TASK [Add Rook Helm repository] ********************************************************************************************************************************
-fatal: [kmn1]: FAILED! => {"changed": false, "command": "/usr/bin/helm repo add rook-release https://charts.rook.io/release", "msg": "Failure when executing Helm command. Exited 1.\nstdout: \nstderr: Error: looks like \"https://charts.rook.io/release\" is not a valid chart repository or cannot be reached: local error: tls: bad record MAC\n", "stderr": "Error: looks like \"https://charts.rook.io/release\" is not a valid chart repository or cannot be reached: local error: tls: bad record MAC\n", "stderr_lines": ["Error: looks like \"https://charts.rook.io/release\" is not a valid chart repository or cannot be reached: local error: tls: bad record MAC"], "stdout": "", "stdout_lines": []}
-
-
-
-TASK [Install Kyverno] *****************************************************************************************************************************************
-fatal: [kmn1]: FAILED! => {"changed": false, "command": "/usr/bin/helm show chart 'kyverno/kyverno'", "msg": "Failure when executing Helm command. Exited 1.\nstdout: \nstderr: Error: local error: tls: bad record MAC\n", "stderr": "Error: local error: tls: bad record MAC\n", "stderr_lines": ["Error: local error: tls: bad record MAC"], "stdout": "", "stdout_lines": []}
-
-
-
-TASK [Add Rook Helm repository] ********************************************************************************************************************************
-fatal: [kmn1]: FAILED! => {"changed": false, "command": "/usr/bin/helm repo add rook-release https://charts.rook.io/release", "msg": "Failure when executing Helm command. Exited 1.\nstdout: \nstderr: Error: looks like \"https://charts.rook.io/release\" is not a valid chart repository or cannot be reached: Get \"https://charts.rook.io/release/index.yaml\": local error: tls: bad record MAC\n", "stderr": "Error: looks like \"https://charts.rook.io/release\" is not a valid chart repository or cannot be reached: Get \"https://charts.rook.io/release/index.yaml\": local error: tls: bad record MAC\n", "stderr_lines": ["Error: looks like \"https://charts.rook.io/release\" is not a valid chart repository or cannot be reached: Get \"https://charts.rook.io/release/index.yaml\": local error: tls: bad record MAC"], "stdout": "", "stdout_lines": []}
-```
-
-http://grafana.monitoring.svc.cluster.local
-
-
-echo "10.100.49.219 grafana.k8s.local" | sudo tee -a /etc/hosts
