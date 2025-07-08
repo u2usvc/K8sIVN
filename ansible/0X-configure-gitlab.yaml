@@ -6,12 +6,12 @@
     gitlab_password: "g1tl4b_p4$$w0rd"
     gitlab_username: "gitlab_admin"
   tasks:
-    # kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
+    # kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.5.1/install.yaml
     - name: Apply FluxCD installation manifest
       kubernetes.core.k8s:
         kubeconfig: /etc/kubernetes/admin.conf
         state: present
-        src: "https://github.com/fluxcd/flux2/releases/latest/download/install.yaml"
+        src: "https://github.com/fluxcd/flux2/releases/download/v2.5.1/install.yaml"
       register: _install_package
       until: _install_package.failed is not true
       # ignore_errors: true
@@ -688,13 +688,21 @@
     - name: Debug
       debug:
         var: _debug
-
+    
     - name: Slurp CA cert file contents
       slurp:
         src: /etc/pki/ca-trust/source/anchors/coolcorp.pem
       register: cert_file
-
-    # kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
+    
+    - name: clear before bootstrap
+      shell: flux uninstall --silent
+      register: _clear
+      retries: 5
+      delay: 10
+    - name: Debug
+      debug:
+        var: _clear
+    
     - name: Execute bootstrap flux
       shell: KUBECONFIG=/etc/kubernetes/admin.conf GITLAB_TOKEN='{{ gitlab_token }}' flux bootstrap gitlab --hostname=https://coreos04.k8s.local --deploy-token-auth --owner='{{ gitlab_username }}' --repository=flux-config --branch=master --path=clusters/k8s-local --personal --ca-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem
       register: _repo_add
@@ -704,8 +712,8 @@
     - name: Debug
       debug:
         var: _repo_add
-
-
+    
+    
     - name: Copy ssh key to cp node
       copy:
         src: /tmp/gitlab_admin
@@ -731,14 +739,14 @@
       ansible.builtin.file:
         path: /var/repos/flux-config
         state: absent
-
+    
     - name: Configure Git user if not already set
       command: "{{ item }}"
       with_items:
         - git config --global user.email "gitlab_admin@example.com"
         - git config --global user.name "gitlab_admin"
       ignore_errors: yes  # Ignore errors in case it's already configured
-
+    
     - name: Check if known_hosts file exists
       stat:
         path: /root/.ssh/known_hosts
@@ -747,7 +755,7 @@
     - name: Clear the authorized_keys if known_hosts exists
       command: sed -i '/coreos04.k8s.local/d' /root/.ssh/known_hosts
       when: known_hosts_stat.stat.exists
-
+    
     - name: clone the fluxCD config repo locally
       command: git clone git@coreos04.k8s.local:gitlab_admin/flux-config.git
       args:
@@ -758,10 +766,16 @@
     - name: debug
       debug:
         var: _debug
-
+    
     # flux-podinfo-secret
     - name: create secret
       shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create secret git flux-podinfo-secret --url=https://coreos04.k8s.local/gitlab_admin/podinfo --namespace=flux-system --username='flux-user' --ca-crt-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem --password='{{ hostvars['mon1'].deploy_token }}'
+
+    - name: create directory for repos
+      ansible.builtin.file:
+        path: /var/repos/flux-config/clusters/k8s-local
+        state: directory
+        mode: '0755'
 
     - name: Add podinfo repository to flux
       shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create source git podinfo --url=https://coreos04.k8s.local/gitlab_admin/podinfo --branch=main --secret-ref flux-podinfo-secret --interval=1m --export > ./clusters/k8s-local/podinfo-source.yaml

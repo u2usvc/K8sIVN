@@ -26,12 +26,13 @@ cd ..
 echo -e "${YELLOW}###########################################${NC}"
 echo -e "${YELLOW}[X] Destroying existing plan if any${NC}"
 echo -e "${YELLOW}###########################################${NC}"
-sleep 3
-sudo terraform destroy -auto-approve
+sleep 5
+terraform destroy -auto-approve
 echo -e "${YELLOW}###########################################${NC}"
 echo -e "${YELLOW}[X] Providing the cluster${NC}"
 echo -e "${YELLOW}###########################################${NC}"
-sudo terraform apply -auto-approve && echo -e "${GREEN}[+] Cluster is deployed${NC}"
+sleep 5
+terraform apply -auto-approve && echo -e "${GREEN}[+] Cluster is deployed${NC}"
 
 echo -e "${YELLOW}###########################################${NC}"
 echo -e "${YELLOW}[X] About to provision the cluster${NC}"
