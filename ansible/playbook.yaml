@@ -28,9 +28,9 @@
     #   delegate_to: localhost
     #   vars:
     #     ansible_become: false
-    - name: calcel initial autoupdate and disable zincati
+    - name: cancel initial autoupdate and disable zincati
       raw: sudo /usr/bin/rpm-ostree cancel && sudo systemctl disable --now zincati.service && sudo systemctl stop --now zincati.service && sudo systemctl mask zincati.service
-      register: _calcel
+      register: _cancel
       until: _cancel.failed is not true
       # ignore_errors: true
       retries: 10
