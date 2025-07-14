@@ -1,0 +1,6 @@
+---
+- name: ensure availability and install python
+  hosts: all
+  gather_facts: false
+  roles:
+    - ../roles/initial/ensure_availability

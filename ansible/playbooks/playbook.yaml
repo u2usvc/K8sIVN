@@ -1,170 +1,6 @@
----
-- hosts: all
-  gather_facts: False
-  tasks:
-    # - name: Wait for the server to shutdown
-    #   wait_for:
-    #     host: "{{ ansible_host }}"
-    #     port: 22
-    #     state: stopped
-    #     timeout: 600
-    #   delegate_to: localhost
-    #   vars:
-    #     ansible_become: false
-    # 
-    # - name: Wait for the server to reboot
-    #   wait_for:
-    #     host: "{{ ansible_host }}"
-    #     port: 22
-    #     state: started
-    #     timeout: 600
-    #   delegate_to: localhost
-    #   vars:
-    #     ansible_become: false
-    #
-    # - name: wait for bootup to finish
-    #   ansible.builtin.wait_for:
-    #     timeout: 60
-    #   delegate_to: localhost
-    #   vars:
-    #     ansible_become: false
-    - name: cancel initial autoupdate and disable zincati
-      raw: sudo /usr/bin/rpm-ostree cancel && sudo systemctl disable --now zincati.service && sudo systemctl stop --now zincati.service && sudo systemctl mask zincati.service
-      register: _cancel
-      until: _cancel.failed is not true
-      # ignore_errors: true
-      retries: 10
-      delay: 3
-
-    - name: install python3
-      raw: sudo /usr/bin/rpm-ostree install -y --apply-live --allow-inactive python3 libselinux-python3
-      register: _repo_add
-      until: _repo_add.failed is not true
-      # ignore_errors: true
-      retries: 10
-      delay: 3
-
-- hosts: all
-  tasks:
-    - name: Disable selinux (required reboot)
-      selinux:
-        state=disabled
-
-
-- hosts:
-  - cp
-  - dp
-  tasks:
-    - name: Install kubelet, kubectl, cri-o & cri-tools
-      community.general.rpm_ostree_pkg:
-        name:
-        - wget
-        - kubeadm
-        - kubelet
-        - kubectl
-        - parted
-        - cri-tools
-        - cri-o
-        - python3-yaml
-        - rsync
-        - sshpass
-        state: present
-      register: _install_package
-      until: _install_package.failed is not true
-      # ignore_errors: true
-      retries: 10
-      delay: 3
-
-    - name: Reboot!
-      ansible.builtin.reboot:
-
-
-- hosts:
-    - cp
-    - dp
-  tasks:
-    - name: Enable service kubelet
-      ansible.builtin.systemd_service:
-        name: kubelet
-        enabled: true
-
-- hosts: dp
-  become: true
-  tasks:
-    # / is mounted ro, so create under /var
-    - name: Create a directory if it does not exist
-      ansible.builtin.file:
-        path: /var/contain/vdb1/run/containers/storage
-        state: directory
-        mode: '0755'
-    - name: Create a directory if it does not exist
-      ansible.builtin.file:
-        path: /var/contain/vdb1/lib/containers/storage
-        state: directory
-        mode: '0755'
-    # - name: Create a new xfs primary partition
-    #   community.general.parted:
-    #     device: /dev/vdb
-    #     number: 1
-    #     state: present
-    #     fs_type: xfs
-    - name: Mount larger volume for containers (change fstab)
-      ansible.posix.mount:
-        path: /var/contain/vdb1
-        src: /dev/disk/by-label/CONT
-        fstype: xfs
-        opts: defaults
-        state: present
-
-    - name: Copy crio.conf to avoid DiskPressure
-      ansible.builtin.copy:
-        src: ./files/crio.conf
-        dest: /etc/crio/crio.conf
-        owner: root
-        group: root
-        mode: '0644'
-    # # saves to fstab
-    # - name: Mount and bind a volume
-    #   ansible.posix.mount:
-    #     src: /var
-    #     path: /mnt/vdb1/var
-    #     opts: bind
-    #     state: mounted
-    #     fstype: none
-
-- hosts:
-    - cp
-    - dp
-  tasks:
-    - name: Ensure systemd override directory exists
-      ansible.builtin.file:
-        path: /etc/systemd/system/crio.service.d
-        state: directory
-        mode: "0755"
-
-    - name: Override crio ExecStart with custom config
-      ansible.builtin.copy:
-        content: |
-          [Service]
-          Before=
-          Before=kubelet.service
-          ExecStart=
-          ExecStart=/usr/bin/crio --config /etc/crio/crio.conf --log-level debug
-        dest: /etc/systemd/system/crio.service.d/override.conf
-
-    - name: Reload systemd to apply override
-      systemd:
-        daemon_reload: yes
-    - name: Enable and start crio
-      ansible.builtin.systemd_service:
-        name: crio
-        enabled: true
-        state: started
-
-
+################### k8s done
 - hosts: cp
-  become: true
-  tasks: 
+  tasks:
     - name: Install Helm
       community.general.rpm_ostree_pkg:
         name:
@@ -184,114 +20,6 @@
       retries: 10
       delay: 3
 
-    - name: Copy .bashrc file to remote hosts
-      ansible.builtin.copy:
-        src: ./files/bashrc
-        dest: /root/.bashrc
-        owner: "root"
-        group: "root"
-        mode: "0644"
-
-    - name: Copy krew.sh
-      ansible.builtin.copy:
-        src: ./files/krew.sh
-        dest: /root/krew.sh
-        owner: root
-        group: root
-        mode: '0755'
-
-    - name: Execute krew.sh script
-      shell: /root/krew.sh
-      register: _repo_add
-      until: _repo_add.failed is not true
-      # ignore_errors: true
-      retries: 10
-      delay: 3
-
-    - name: install krew ceph plugin
-      shell: source /root/.bashrc && kubectl krew install rook-ceph
-      register: _install_package
-      until: _install_package.failed is not true
-      # ignore_errors: true
-      retries: 5
-      delay: 3
-
-
-- hosts: cp
-  tasks:
-    - name: Copy clusterconfig
-      ansible.builtin.copy:
-        src: ./files/clusterconfig.yaml
-        dest: /root/clusterconfig.yaml
-        owner: root
-        group: root
-        mode: '0644'
-
-    - name: Reset K8s if needed
-      ansible.builtin.command: kubeadm reset -f
-
-    - name: Initialize K8s
-      ansible.builtin.command: kubeadm init --config /root/clusterconfig.yaml
-
-    - name: Get kubeadm join command with tokens
-      ansible.builtin.command: kubeadm token create --print-join-command
-      register: join_command
-
-    - name: set global join_command
-      delegate_to: localhost
-      delegate_facts: true
-      ansible.builtin.set_fact:
-        join_command: "{{ join_command.stdout }}"
-
-    - name: Print kubeadm join command with tokens
-      ansible.builtin.debug:
-        var: join_command
-
-    - name: Get /etc/kubernetes/admin.conf
-      ansible.builtin.slurp:
-        src: /etc/kubernetes/admin.conf
-      register: kube_config
-
-    - name: Print kube_config
-      ansible.builtin.debug:
-        var: "{{ kube_config.content | b64decode }}"
-
-    - name: set global kube_config
-      delegate_to: localhost
-      delegate_facts: true
-      ansible.builtin.set_fact:
-        kube_config: "{{ kube_config }}"
-
-
-- hosts: dp
-  tasks:
-    - name: Reset K8s if needed
-      ansible.builtin.command: kubeadm reset -f
-
-    - name: Execute kubeadm join
-      ansible.builtin.command: "{{ hostvars.localhost.join_command }}"
-      register: join_command_output
-
-    - name: Print kubeadm join output
-      ansible.builtin.debug:
-        var: join_command_output.stdout
-
-
-- hosts: all
-  tasks:
-    - name: Reboot!
-      ansible.builtin.reboot:
-
-    - name: ping
-      ansible.builtin.ping:
-
-
-- hosts: cp
-  become: true
-  gather_facts: true
-  vars_files:
-    - ./vars.yml
-  tasks:
     - name: Install pip
       community.general.rpm_ostree_pkg:
         name:
@@ -352,13 +80,13 @@
         var: _install_package
     - name: Add cilium.sh
       ansible.builtin.copy:
-        src: ./files/cilium.sh
+        src: ../files/cilium.sh
         dest: /root/cilium.sh
         owner: root
         group: root
         mode: '0755'
     - name: Execute cilium.sh script
-      script: files/cilium.sh
+      script: ../files/cilium.sh
       register: _debug
       until: _debug.failed is not true
       # ignore_errors: true
@@ -417,9 +145,34 @@
     #     msg: "{{ display_creds_output.stderr_lines | default('No errors') }}"
 
     # see *CUSTOM*
+
+    - name: Copy krew.sh
+      ansible.builtin.copy:
+        src: ../files/krew.sh
+        dest: /root/krew.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Execute krew.sh script
+      shell: /root/krew.sh
+      register: _repo_add
+      until: _repo_add.failed is not true
+      # ignore_errors: true
+      retries: 10
+      delay: 3
+
+    - name: install krew ceph plugin
+      shell: source /root/.bashrc && kubectl krew install rook-ceph
+      register: _install_package
+      until: _install_package.failed is not true
+      # ignore_errors: true
+      retries: 5
+      delay: 3
+
     - name: Add rook-values.yaml
       ansible.builtin.copy:
-        src: ./files/rook-values.yaml
+        src: ../files/rook-values.yaml
         dest: /root/rook-values.yaml
         owner: root
         group: root
@@ -812,6 +565,3 @@
     - name: Debug
       debug:
         var: _obj_add
-
-- import_playbook: ./0X-configure-gitlab.yaml 
-# prometheus, grafana, nginx-ingress

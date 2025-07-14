@@ -1,0 +1,27 @@
+- name: Install kubelet, kubectl, cri-o & cri-tools
+  community.general.rpm_ostree_pkg:
+    name:
+    - wget
+    - kubeadm
+    - kubelet
+    - kubectl
+    - parted
+    - cri-tools
+    - cri-o
+    - python3-yaml
+    - rsync
+    - sshpass
+    state: present
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3
+
+- name: Reboot!
+  ansible.builtin.reboot:
+
+- name: Enable service kubelet
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true

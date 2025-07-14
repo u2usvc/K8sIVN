@@ -1,0 +1,37 @@
+- name: initial node preparation
+  hosts:
+    - cp
+    - dp
+  roles: 
+    - k8s/nodes_prep
+
+- name: avoid dispPressure on dp nodes
+  hosts: dp
+  roles: 
+    - k8s/mitigate_diskpressure
+
+- name: prepare cri-o
+  hosts:
+    - cp
+    - dp
+  roles:
+    - k8s/prepare_cri
+
+- name: initialize cluster
+  hosts: cp
+  roles:
+    - k8s/initialize_cluster
+
+- name: join workers to cluster
+  hosts: dp
+  roles:
+    - k8s/join_cluster
+
+- name: ensure host availability
+  hosts: all
+  tasks:
+    - name: Reboot!
+      ansible.builtin.reboot:
+
+    - name: ping
+      ansible.builtin.ping:

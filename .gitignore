@@ -4,9 +4,9 @@ terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/.terraform.lock.hcl
 terraform/errored.tfstate
-terraform/images/*
-terraform/.terraform/*
-ansible/bin/*
-ansible/include/*
-ansible/lib/*
-ansible/lib64/*
+terraform/images/
+terraform/.terraform/
+ansible/bin/
+ansible/include/
+ansible/lib/
+ansible/lib64

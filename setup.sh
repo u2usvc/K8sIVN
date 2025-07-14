@@ -42,6 +42,6 @@ sleep 4
 cd ../ansible/
 
 sed -i '/192.168.122.101\|192.168.122.102\|192.168.122.103\|192.168.122.104/d' ~/.ssh/known_hosts
-ansible-playbook -i inventory.ini ./playbook.yaml
+ansible-playbook -i inventory.ini playbooks/imports.yml
 
 cd ../

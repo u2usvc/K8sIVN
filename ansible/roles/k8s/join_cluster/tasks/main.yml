@@ -1,0 +1,10 @@
+- name: Reset K8s if needed
+  ansible.builtin.command: kubeadm reset -f
+
+- name: Execute kubeadm join
+  ansible.builtin.command: "{{ hostvars.localhost.join_command }}"
+  register: join_command_output
+
+- name: Print kubeadm join output
+  ansible.builtin.debug:
+    var: join_command_output.stdout

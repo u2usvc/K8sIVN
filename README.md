@@ -27,3 +27,16 @@ sudo virsh undefine --domain coreos01
 virsh pool-destroy --pool fcos_k8s_lab_pool
 virsh pool-undefine --pool fcos_k8s_lab_pool
 ```
+
+## Usage
+Initialize terraform project:
+```
+cd ./terraform/ && terraform init -upgrade
+```
+
+In order to achieve basic cluster deployment - exclude unwanted playbooks from `./ansible/playbooks/imports.yml`
+
+Execute the deployment script:
+```
+./setup.sh
+```

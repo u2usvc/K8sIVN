@@ -96,7 +96,7 @@
         mode: '0755'
     - name: Override docker config
       ansible.builtin.copy:
-        src: ./files/docker.conf.json
+        src: ../files/docker.conf.json
         dest: /etc/docker/daemon.json
         owner: root
         group: root
@@ -400,7 +400,7 @@
 
     - name: Copy gitlab.rb inside the machine
       ansible.builtin.copy:
-        src: ./files/gitlab.rb
+        src: ../files/gitlab.rb
         dest: /tmp/gitlab.rb
         owner: root
         group: root
@@ -559,7 +559,7 @@
       command: git remote remove origin
       args:
         chdir: "/var/repos/podinfo"
-      ignore_errors: yes
+      ignore_errors: true
     - name: Add the remote GitLab repository if not already set
       command: git remote add origin 'git@coreos04.k8s.local:gitlab_admin/podinfo.git'
       args:
@@ -586,7 +586,7 @@
       with_items:
         - git config --global user.email "gitlab_admin@example.com"
         - git config --global user.name "gitlab_admin"
-      ignore_errors: yes  # Ignore errors in case it's already configured
+      ignore_errors: true  # Ignore errors in case it's already configured
 
     - name: Check if there are changes to commit
       command: git status
@@ -745,7 +745,7 @@
       with_items:
         - git config --global user.email "gitlab_admin@example.com"
         - git config --global user.name "gitlab_admin"
-      ignore_errors: yes  # Ignore errors in case it's already configured
+      ignore_errors: true  # Ignore errors in case it's already configured
     
     - name: Check if known_hosts file exists
       stat:

@@ -1,0 +1,40 @@
+# / is mounted ro, so create under /var
+- name: Create a directory if it does not exist
+  ansible.builtin.file:
+    path: /var/contain/vdb1/run/containers/storage
+    state: directory
+    mode: '0755'
+- name: Create a directory if it does not exist
+  ansible.builtin.file:
+    path: /var/contain/vdb1/lib/containers/storage
+    state: directory
+    mode: '0755'
+# - name: Create a new xfs primary partition
+#   community.general.parted:
+#     device: /dev/vdb
+#     number: 1
+#     state: present
+#     fs_type: xfs
+- name: Mount larger volume for containers (change fstab)
+  ansible.posix.mount:
+    path: /var/contain/vdb1
+    src: /dev/disk/by-label/CONT
+    fstype: xfs
+    opts: defaults
+    state: present
+
+- name: Copy crio.conf to avoid DiskPressure
+  ansible.builtin.copy:
+    src: ../files/crio.conf
+    dest: /etc/crio/crio.conf
+    owner: root
+    group: root
+    mode: '0644'
+# # saves to fstab
+# - name: Mount and bind a volume
+#   ansible.posix.mount:
+#     src: /var
+#     path: /mnt/vdb1/var
+#     opts: bind
+#     state: mounted
+#     fstype: none

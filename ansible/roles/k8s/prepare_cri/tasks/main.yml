@@ -1,0 +1,24 @@
+- name: Ensure systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/crio.service.d
+    state: directory
+    mode: "0755"
+
+- name: Override crio ExecStart with custom config
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      Before=
+      Before=kubelet.service
+      ExecStart=
+      ExecStart=/usr/bin/crio --config /etc/crio/crio.conf --log-level debug
+    dest: /etc/systemd/system/crio.service.d/override.conf
+
+- name: Reload systemd to apply override
+  systemd:
+    daemon_reload: yes
+- name: Enable and start crio
+  ansible.builtin.systemd_service:
+    name: crio
+    enabled: true
+    state: started

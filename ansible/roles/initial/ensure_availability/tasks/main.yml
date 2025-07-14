@@ -1,0 +1,45 @@
+# - name: Wait for the server to shutdown
+#   wait_for:
+#     host: "{{ ansible_host }}"
+#     port: 22
+#     state: stopped
+#     timeout: 600
+#   delegate_to: localhost
+#   vars:
+#     ansible_become: false
+# 
+# - name: Wait for the server to reboot
+#   wait_for:
+#     host: "{{ ansible_host }}"
+#     port: 22
+#     state: started
+#     timeout: 600
+#   delegate_to: localhost
+#   vars:
+#     ansible_become: false
+#
+# - name: wait for bootup to finish
+#   ansible.builtin.wait_for:
+#     timeout: 60
+#   delegate_to: localhost
+#   vars:
+#     ansible_become: false
+- name: cancel initial autoupdate and disable zincati
+  raw: sudo /usr/bin/rpm-ostree cancel && sudo systemctl disable --now zincati.service && sudo systemctl stop --now zincati.service && sudo systemctl mask zincati.service
+  register: _cancel
+  until: _cancel.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3
+
+- name: install python3
+  raw: sudo /usr/bin/rpm-ostree install -y --apply-live --allow-inactive python3 libselinux-python3
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3
+
+- name: Disable selinux (required reboot)
+  selinux:
+    state=disabled
