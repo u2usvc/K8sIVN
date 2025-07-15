@@ -1,0 +1,25 @@
+- name: Copy krew.sh
+  ansible.builtin.copy:
+    src: ../files/krew.sh
+    dest: /root/krew.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Execute krew.sh script
+  shell: /root/krew.sh
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3
+
+- name: install krew ceph plugin
+  shell: source /root/.bashrc && kubectl krew install rook-ceph
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+
+

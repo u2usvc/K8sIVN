@@ -4,17 +4,6 @@
     - dp
   roles: 
     - k8s/nodes_prep
-
-- name: avoid dispPressure on dp nodes
-  hosts: dp
-  roles: 
-    - k8s/mitigate_diskpressure
-
-- name: prepare cri-o
-  hosts:
-    - cp
-    - dp
-  roles:
     - k8s/prepare_cri
 
 - name: initialize cluster
@@ -25,6 +14,7 @@
 - name: join workers to cluster
   hosts: dp
   roles:
+    - k8s/mitigate_diskpressure
     - k8s/join_cluster
 
 - name: ensure host availability
@@ -35,3 +25,9 @@
 
     - name: ping
       ansible.builtin.ping:
+
+- name: install necessary packages on cp
+  hosts: cp
+  roles:
+    - k8s/helm
+    - k8s/cp_prep

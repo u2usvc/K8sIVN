@@ -1,7 +1,7 @@
 ---
-# prepare all machines for provisioning
-- import_playbook: initial.yml
-# deploy the base kubernetes cluster
-- import_playbook: k8s.yml
-- import_playbook: playbook.yaml
-- import_playbook: 0X-configure-gitlab.yaml
+# # prepare all machines for provisioning
+# - import_playbook: initial.yml
+# # deploy the base kubernetes cluster
+# - import_playbook: k8s.yml
+- import_playbook: third_party.yml
+# - import_playbook: 0X-configure-gitlab.yaml

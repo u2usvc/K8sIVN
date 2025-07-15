@@ -1,0 +1,47 @@
+- name: Add Grafana Helm repository
+  kubernetes.core.helm_repository:
+    name: grafana
+    repo_url: "https://grafana.github.io/helm-charts"
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _repo_add
+
+- name: Install Grafana
+  kubernetes.core.helm:
+    name: grafana
+    chart_ref: grafana/grafana
+    wait: true
+    release_namespace: monitoring
+    kubeconfig: /etc/kubernetes/admin.conf
+    update_repo_cache: true
+    values:
+      adminUser: "grafana_admin"
+      adminPassword: "grafana_password"
+      datasources:
+        datasources.yaml:
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              url: "http://prometheus-server.monitoring.svc.cluster.local"
+              access: proxy
+              isDefault: true
+      dashboards:
+        default:
+          prometheus-stats:
+            gnetId: 2
+            revision: 2
+            datasource: Prometheus
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _install_package

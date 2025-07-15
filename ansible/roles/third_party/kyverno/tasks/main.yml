@@ -1,0 +1,33 @@
+- name: Add Kyverno Helm repository
+  kubernetes.core.helm_repository:
+    name: kyverno
+    repo_url: "https://kyverno.github.io/kyverno/"
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _repo_add
+
+- name: Install Kyverno
+  kubernetes.core.helm:
+    name: kyverno
+    chart_ref: kyverno/kyverno
+    chart_version: "3.3.7"
+    release_namespace: kyverno
+    create_namespace: true
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    update_repo_cache: true
+    wait: true
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _install_package
+

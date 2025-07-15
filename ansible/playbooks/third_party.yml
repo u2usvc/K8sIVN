@@ -1,0 +1,9 @@
+- name: Integrate third party applications
+  hosts: cp
+  roles: 
+    - third_party/cilium
+    - third_party/kyverno
+    - third_party/rook-ceph
+    - third_party/prometheus
+    - third_party/grafana
+    - third_party/nginx-ingress

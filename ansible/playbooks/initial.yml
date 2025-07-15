@@ -3,4 +3,4 @@
   hosts: all
   gather_facts: false
   roles:
-    - ../roles/initial/ensure_availability
+    - initial/ensure_availability

@@ -1,0 +1,22 @@
+- name: Install pip
+  community.general.rpm_ostree_pkg:
+    name:
+    - pip
+    - python3-packaging
+    state: present
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3
+
+- name: Reboot!
+  ansible.builtin.reboot:
+
+- name: Ensure needed pip packages are present
+  ansible.builtin.pip:
+    executable: pip3
+    name:
+      - pyyaml
+      - jsonpatch
+      - kubernetes

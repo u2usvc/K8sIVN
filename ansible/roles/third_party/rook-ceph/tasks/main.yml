@@ -1,0 +1,168 @@
+- name: Add rook-values.yaml
+  ansible.builtin.copy:
+    src: ../files/rook-values.yaml
+    dest: /root/rook-values.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Add Rook Helm repository
+  kubernetes.core.helm_repository:
+    name: rook-release
+    repo_url: "https://charts.rook.io/release"
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _repo_add
+
+    # helm install rook-ceph rook-release/rook-ceph --create-namespace --namespace rook-ceph --values ./rook-values.yaml --debug
+- name: Install Rook operator
+  kubernetes.core.helm:
+    name: rook-ceph
+    chart_ref: rook-release/rook-ceph
+    chart_version: "v1.16.5"
+    release_namespace: rook-ceph
+    update_repo_cache: true
+    wait: true
+    create_namespace: true
+    kubeconfig: /etc/kubernetes/admin.conf
+    # -f, --values [file.yaml]
+    values_files:
+      - /root/rook-values.yaml
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _install_package
+
+- name: Install Rook cluster
+  kubernetes.core.helm:
+    name: rook-ceph-cluster
+    chart_ref: rook-release/rook-ceph-cluster
+    chart_version: "v1.16.5"
+    release_namespace: rook-ceph
+    update_repo_cache: true
+    wait: true
+    create_namespace: true
+    kubeconfig: /etc/kubernetes/admin.conf
+    # -f, --values [file.yaml]
+    values:
+      operatorNamespace: "rook-ceph"
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _install_package
+
+- name: add permission for rook-ceph-system to manage endpointslices
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: patched
+    namespace: rook-ceph
+    name: rook-ceph-system
+    kind: ClusterRole
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: rook-ceph-system
+      rules:
+        - apiGroups:
+            - "discovery.k8s.io"
+          resources:
+            - "endpointslices"
+          verbs:
+            - "create"
+            - "get"
+            - "list"
+            - "watch"
+            - "update"
+            - "patch"
+            - "delete"
+  register: _patch_cluster
+  until: _patch_cluster.failed is not true
+  retries: 5
+  delay: 3
+
+- name: Enable allowMultiplePerNode in CephCluster
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: patched
+    namespace: rook-ceph
+    kind: CephCluster
+    name: rook-ceph
+    definition:
+      spec:
+        mon:
+          allowMultiplePerNode: true
+  register: _patch_cluster
+  until: _patch_cluster.failed is not true
+  retries: 5
+  delay: 3
+
+# Will automatically create PVs
+- name: Create rook-ceph block pool
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: present
+    definition:
+      apiVersion: ceph.rook.io/v1
+      kind: CephBlockPool
+      metadata:
+        name: replicapool0
+        namespace: rook-ceph
+      spec:
+        failureDomain: host
+        replicated:
+          # number of nodes that can store replicas (node being a CP master is considered a taint!)
+          size: 2
+  register: _obj_add
+  until: _obj_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _obj_add
+
+- name: Create rook-ceph storageClass
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: present
+    definition:
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+         name: rook-ceph-block
+      provisioner: rook-ceph.rbd.csi.ceph.com
+      parameters:
+          clusterID: rook-ceph
+          pool: replicapool0 
+          imageFormat: "2" 
+          imageFeatures: layering 
+          csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+          csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+          csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+          csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph 
+          csi.storage.k8s.io/fstype: xfs
+          allowVolumeExpansion: "false"
+      # Delete the rbd volume when a PVC is deleted
+      reclaimPolicy: Delete
+  register: _obj_add
+  until: _obj_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _obj_add

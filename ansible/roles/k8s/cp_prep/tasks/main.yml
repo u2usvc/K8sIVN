@@ -1,0 +1,5 @@
+- name: Ensure necessary pip packages are present
+  import_tasks: pip.yml
+
+- name: Install krew kubectl plugin
+  import_tasks: krew.yml

@@ -1,0 +1,51 @@
+- name: Add Cilium Helm repository
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 15
+  delay: 3
+  kubernetes.core.helm_repository:
+    name: cilium
+    repo_url: "https://helm.cilium.io"
+- name: Debug
+  debug:
+    var: _repo_add
+
+- name: Install Cilium
+  kubernetes.core.helm:
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "1.17.0"
+    release_namespace: kube-system
+    create_namespace: true
+    state: present
+    kubeconfig: /etc/kubernetes/admin.conf
+    update_repo_cache: true
+    # -f, --values
+    values:
+      ipam:
+        mode: kubernetes
+    wait: true
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _install_package
+
+- name: Add cilium.sh
+  ansible.builtin.copy:
+    src: ../files/cilium.sh
+    dest: /root/cilium.sh
+    owner: root
+    group: root
+    mode: '0755'
+- name: Execute cilium.sh script
+  script: ../files/cilium.sh
+  register: _debug
+  until: _debug.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3

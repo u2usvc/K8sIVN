@@ -1,0 +1,74 @@
+# helm install nginx-ingress ingress-nginx/ingress-nginx --create-namespace --namespace ingress-nginx
+- name: Add Ingress-Nginx Helm repository
+  kubernetes.core.helm_repository:
+    name: ingress-nginx
+    repo_url: "https://kubernetes.github.io/ingress-nginx"
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _repo_add
+
+- name: Install ingress-nginx via Helm
+  kubernetes.core.helm:
+    name: nginx-ingress
+    update_repo_cache: true
+    wait: true
+    chart_ref: ingress-nginx/ingress-nginx
+    release_namespace: ingress-nginx
+    kubeconfig: /etc/kubernetes/admin.conf
+    create_namespace: true
+    values:
+      controller:
+        hostNetwork: true
+        service:
+          type: NodePort
+        ingressClassResource:
+          name: nginx  # Match with ingressClassName in Ingress resource
+          enabled: true
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _install_package
+
+# referenced by ingressClassName
+- name: Create global Ingress resource for ingress-nginx
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: ingress-grafana
+        namespace: monitoring
+        annotations:
+          kubernetes.io/ingress.class: nginx
+      spec:
+        ingressClassName: nginx
+        rules:
+          - host: grafana.k8s.local
+            http:
+              paths:
+                - pathType: Prefix
+                  path: "/"
+                  backend:
+                    service:
+                      name: grafana
+                      port:
+                        number: 80
+  register: _obj_add
+  until: _obj_add.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _obj_add

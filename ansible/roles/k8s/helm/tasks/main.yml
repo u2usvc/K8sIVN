@@ -1,0 +1,14 @@
+- name: Install Helm
+  community.general.rpm_ostree_pkg:
+    name:
+    - helm
+    state: present
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 20
+
+# # removed as goes right after before next installation task
+# - name: Reboot!
+#   ansible.builtin.reboot:
