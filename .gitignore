@@ -10,3 +10,4 @@ ansible/bin/
 ansible/include/
 ansible/lib/
 ansible/lib64
+**/pyvenv.cfg
