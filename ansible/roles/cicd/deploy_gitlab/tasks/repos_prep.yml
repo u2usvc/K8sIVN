@@ -1,0 +1,23 @@
+# seamingly unnecessary tasks are added in case of a rerun
+- name: create directory for repos
+  ansible.builtin.file:
+    path: /var/repos/
+    state: directory
+    mode: '0755'
+
+- name: Remove a directory
+  ansible.builtin.file:
+    path: /var/repos/my-webapp
+    state: absent
+- name: Remove a directory
+  ansible.builtin.file:
+    path: /var/repos/podinfo
+    state: absent
+
+- name: clone podinfo web application
+  command: git clone --single-branch --branch v6.x https://github.com/stefanprodan/podinfo.git
+  args:
+    chdir: "/var/repos"
+  register: _repo_add
+  retries: 5
+  delay: 10

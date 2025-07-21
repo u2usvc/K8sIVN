@@ -1,0 +1,322 @@
+################################
+### ADD USER
+################################
+- name: Create a temporary script on the host
+  copy:
+    dest: "/tmp/gitlab_create_user.rb"
+    content: |
+      existing_user = User.find_by_username('{{ gitlab_username }}')
+      
+      if existing_user
+        puts "User {{ gitlab_username }} already exists"
+      else
+        response = Users::CreateService.new(nil,
+          username: '{{ gitlab_username }}',
+          email: '{{ gitlab_username }}@example.com',
+          name: '{{ gitlab_username }}',
+          password: '{{ gitlab_password }}',
+          password_confirmation: '{{ gitlab_password }}',
+          organization_id: Organizations::Organization.first.id,
+          skip_confirmation: true
+        ).execute
+      
+        if response.success?
+          user = response.payload[:user]  # Extract the user object
+          puts "User created: #{user.username}"
+        else
+          puts "Failed to create user: #{response.message}"
+        end
+      end
+- name: Copy a file into the container
+  community.docker.docker_container_copy_into:
+    container: gitlab-local-0
+    path: /tmp/gitlab_create_user.rb
+    container_path: /tmp/gitlab_create_user.rb
+
+- name: Create user within the GL container
+  community.docker.docker_container_exec:
+    container: gitlab-local-0
+    command: gitlab-rails runner /tmp/gitlab_create_user.rb
+  register: _debug
+  until: _debug.failed is not true
+  retries: 10
+  delay: 15
+- name: Debug
+  debug:
+    var: _debug
+  # register: _install_package
+  # until: _install_package.failed is not true
+  # # ignore_errors: true
+  # retries: 5
+  # delay: 3
+
+- name: Clean up script from the container
+  community.docker.docker_container_exec:
+    container: gitlab-local-0
+    command: rm /tmp/gitlab_create_user.rb
+
+- name: Remove temporary script from the host
+  file:
+    path: "/tmp/gitlab_create_user.rb"
+    state: absent
+
+
+
+################################
+### ADD TOKEN
+################################
+# user = User.find_by_username('{{ gitlab_username }}')
+# token = user.personal_access_tokens.create(scopes: ['read_user', 'k8s_proxy','read_repository','write_repository','api'], name: 'Automation token', expires_at: 365.days.from_now)
+# # scopes: ['read_user', 'k8s_proxy', 'write_repository', 'api', 'manage_runner', 'create_runner', 'admin_mode', 'sudo', 'write_registry'],
+# token.set_token('{{ gitlab_token }}')
+# token.save!
+- name: Create a temporary script on the host
+  copy:
+    dest: "/tmp/gitlab_add_token.rb"
+    content: |
+      user = User.find_by_username('{{ gitlab_username }}')
+      existing_token = user.personal_access_tokens.find_by(name: 'Automation token')
+      if existing_token.nil?
+        token = user.personal_access_tokens.create(
+          scopes: ['read_user','k8s_proxy','write_repository','api'],
+          name: 'Automation token',
+          expires_at: 365.days.from_now
+        )
+        token.set_token('{{ gitlab_token }}')
+        token.save!
+        puts "New token created successfully"
+      else
+        puts "Token already exists"
+      end
+
+
+- name: Copy a file into the container
+  community.docker.docker_container_copy_into:
+    container: gitlab-local-0
+    path: /tmp/gitlab_add_token.rb
+    container_path: /tmp/gitlab_add_token.rb
+
+- name: Create token within the GL container
+  community.docker.docker_container_exec:
+    container: gitlab-local-0
+    command: gitlab-rails runner /tmp/gitlab_add_token.rb
+  register: _debug
+  until: _debug.failed is not true
+  retries: 5
+  delay: 3
+- name: Debug
+  debug:
+    var: _debug
+  # register: _install_package
+  # until: _install_package.failed is not true
+  # # ignore_errors: true
+  # retries: 5
+  # delay: 3
+
+- name: Clean up script from the container
+  community.docker.docker_container_exec:
+    container: gitlab-local-0
+    command: rm /tmp/gitlab_add_token.rb
+
+- name: Remove temporary script from the host
+  file:
+    path: "/tmp/gitlab_add_token.rb"
+    state: absent
+
+
+
+# - name: Retrieve GitLab initial root password
+#   community.docker.docker_container_exec:
+#     container: gitlab-local-0
+#     command: grep 'Password:' /etc/gitlab/initial_root_password
+#   register: gitlab_password_output
+#
+# - name: Show GitLab root password
+#   debug:
+#     msg: "{{ gitlab_password_output.stdout }}"
+
+
+- name: Create private key with password protection
+  community.crypto.openssl_privatekey:
+    path: /etc/ssl/coolcorp.key
+    passphrase: "{{ secret_ca_passphrase }}"
+
+- name: Create certificate signing request (CSR) for CA certificate
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: /etc/ssl/coolcorp.key
+    privatekey_passphrase: "{{ secret_ca_passphrase }}"
+    common_name: Ansible CA
+    use_common_name_for_san: false  # since we do not specify SANs, don't use CN as a SAN
+    basic_constraints:
+      - 'CA:TRUE'
+    basic_constraints_critical: true
+    key_usage:
+      - keyCertSign
+    key_usage_critical: true
+  register: ca_csr
+
+- name: Create self-signed CA certificate from CSR
+  community.crypto.x509_certificate:
+    path: /etc/ssl/certs/coolcorp.pem
+    csr_content: "{{ ca_csr.csr }}"
+    privatekey_path: /etc/ssl/coolcorp.key
+    privatekey_passphrase: "{{ secret_ca_passphrase }}"
+    provider: selfsigned
+
+
+- name: Generate private key if not exists
+  community.crypto.openssl_privatekey:
+    path: /root/coreos04.k8s.local.key
+    size: 2048
+    state: present
+
+- name: Create certificate signing request (CSR) for gitlab cert
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: /root/coreos04.k8s.local.key
+    common_name: coreos04.k8s.local 
+    organization_name: Coolcorp, Inc.
+    subject_alt_name:
+      - "DNS:coreos04.k8s.local"
+      - "DNS:kas.coreos04.k8s.local"
+  register: csr
+
+- name: Create self-signed certificate from CSR
+  community.crypto.x509_certificate:
+    path: /root/coreos04.k8s.local.pem
+    csr_content: "{{ csr.csr }}"
+    privatekey_path: /root/coreos04.k8s.local.key
+    provider: ownca
+    ownca_path: /etc/ssl/certs/coolcorp.pem
+    ownca_privatekey_path: /etc/ssl/coolcorp.key
+    ownca_privatekey_passphrase: "{{ secret_ca_passphrase }}"
+
+- name: Copy the key into the container
+  community.docker.docker_container_copy_into:
+    container: gitlab-local-0
+    path: /root/coreos04.k8s.local.key
+    container_path: /etc/gitlab/coreos04.k8s.local.key
+- name: Copy the cert into the container
+  community.docker.docker_container_copy_into:
+    container: gitlab-local-0
+    path: /root/coreos04.k8s.local.pem
+    container_path: /etc/gitlab/coreos04.k8s.local.pem
+
+- name: Push certificates inside GL container
+  community.docker.docker_container_exec:
+    container: gitlab-local-0
+    command: /bin/bash -c "[ -d /etc/gitlab/ssl ] || mkdir /etc/gitlab/ssl && chmod 755 /etc/gitlab/ssl && mv -t /etc/gitlab/ssl/ /etc/gitlab/coreos04.k8s.local.pem /etc/gitlab/coreos04.k8s.local.key"
+  register: _debug
+  until: _debug.failed is not true
+  retries: 5
+  delay: 3
+
+
+- name: Copy gitlab.rb inside the machine
+  ansible.builtin.copy:
+    src: ../files/gitlab.rb
+    dest: /tmp/gitlab.rb
+    owner: root
+    group: root
+    mode: '0644'
+- name: Copy gitlab.rb into the container
+  community.docker.docker_container_copy_into:
+    container: gitlab-local-0
+    path: /tmp/gitlab.rb
+    container_path: /etc/gitlab/gitlab.rb
+
+
+- name: Execute gitlab-ctl reconfigure
+  community.docker.docker_container_exec:
+    container: gitlab-local-0
+    command: gitlab-ctl reconfigure
+  register: _debug
+  until: _debug.failed is not true
+  retries: 5
+  delay: 3
+
+
+- name: Fetch CA cert from mon to control node
+  ansible.builtin.fetch:
+    src: /etc/ssl/certs/coolcorp.pem
+    dest: /tmp/coolcorp.pem
+    flat: yes
+- name: Copy CA cert to a dedicated directory
+  copy:
+    src: /tmp/coolcorp.pem
+    dest: /etc/pki/ca-trust/source/anchors/coolcorp.pem
+    owner: root
+    group: root
+    mode: '0644'
+- name: update CA trust
+  shell: update-ca-trust
+  register: _debug
+  # ignore_errors: true
+- name: Debug
+  debug:
+    var: _debug
+
+
+- name: Wait for GitLab to become available
+  uri:
+    url: "https://coreos04.k8s.local/users/sign_in"
+    method: GET
+    status_code: 200
+  register: gitlab_status
+  retries: 30
+  delay: 10
+  until: gitlab_status.status == 200
+
+
+
+
+
+  ###################
+  ### PUSH KEYS
+  ###################
+# - name: Get GitLab user ID by username
+#   uri:
+#     url: "https://coreos04.k8s.local/api/v4/users?username={{ gitlab_username }}"
+#     method: GET
+#     headers:
+#       PRIVATE-TOKEN: "{{ gitlab_token }}"
+#     return_content: yes
+#   register: gitlab_user_response
+#
+# - name: Extract user ID
+#   set_fact:
+#     gitlab_user_id: "{{ gitlab_user_response.json[0].id }}"
+#   when: gitlab_user_response.json | length > 0
+
+- name: Generate SSH key pair
+  ansible.builtin.openssh_keypair:
+    path: "/root/.ssh/gitlab_admin"
+    size: 2048
+    type: rsa
+    force: true
+  register: ssh_key_pair
+- name: change key permissions
+  ansible.builtin.file:
+    path: "/root/.ssh/gitlab_admin"
+    mode: '0600'
+
+- name: Define SSH public key
+  set_fact:
+    ssh_pub_key: "{{ ssh_key_pair.public_key }}"
+
+    # curl -d '{"title":"test key","key":" {{ ssh_key }} "}' -H 'Content-Type: application/json' https://coreos04.k8s.local/api/v4/user/keys?private_token='{{ gitlab_token }}
+- name: Add SSH key to the user
+  uri:
+    url: "https://coreos04.k8s.local/api/v4/user/keys?private_token={{ gitlab_token }}"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    body: '{"title": "test key", "key": "{{ ssh_pub_key }}"}'
+    body_format: json
+    status_code: 201
+  register: result
+
+- name: Print result of key addition
+  debug:
+    msg: "{{ result }}"
+
+

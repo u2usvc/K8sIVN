@@ -1,0 +1,42 @@
+# kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.5.1/install.yaml
+- name: Apply FluxCD installation manifest
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: present
+    src: "https://github.com/fluxcd/flux2/releases/download/v2.5.1/install.yaml"
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+# - name: Debug
+#   debug:
+#     var: _install_package
+
+- name: install flux cli
+  shell: "curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.5.1 bash"
+  register: _repo_add
+  until: _repo_add.failed is not true
+  # ignore_errors: true
+  retries: 10
+  delay: 3
+# - name: Debug
+#   debug:
+#     var: _repo_add
+
+- name: Create bootstrap-flux.sh
+  ansible.builtin.copy:
+    dest: "/root/gitlab_create_user.rb"
+    content: |
+      flux bootstrap gitlab \
+        --deploy-token-auth \
+        --owner={{ gitlab_username }} \
+        --repository=flux-config \
+        --branch=master \
+        --path=clusters/k8s-local \
+        --personal
+    owner: root
+    group: root
+    mode: '0755'
+  environment:
+    GITLAB_TOKEN: "{{ gitlab_token }}"

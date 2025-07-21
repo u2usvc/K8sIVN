@@ -1,0 +1,44 @@
+- name: Create a directory for docker volumes
+  ansible.builtin.file:
+    path: /var/contain/vdb1/run/containers/storage
+    state: directory
+    mode: '0755'
+- name: Mount larger volume for containers (change fstab)
+  ansible.posix.mount:
+    path: /var/contain/vdb1
+    src: /dev/disk/by-label/CONT
+    fstype: xfs
+    opts: defaults
+    state: present
+
+- name: Install prerequisites
+  community.general.rpm_ostree_pkg:
+    name:
+    - docker
+    - git
+    - python3-packaging
+    - python3-requests
+    - python3-yaml
+    - python3-cryptography
+    state: present
+  register: _install_package
+  until: _install_package.failed is not true
+  # ignore_errors: true
+  retries: 5
+  delay: 3
+
+- name: Create docker conf directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+- name: Overwrite docker config
+  ansible.builtin.copy:
+    src: ../files/docker.conf.json
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reboot!
+  ansible.builtin.reboot:

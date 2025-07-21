@@ -1,0 +1,8 @@
+{
+  "cicd": {
+    "gitlab_username": "gitlab_admin",
+    "gitlab_token": "MYG1TL4B4$$3SST0K3N",
+    "gitlab_password": "g1tl4b_p4$$w0rd",
+    "secret_ca_passphrase": "v3ry$3cr37"
+  }
+}

@@ -1,0 +1,48 @@
+# seamingly unnecessary tasks are added in case of a rerun
+- name: Stop and remove existing GitLab container
+  docker_container:
+    name: gitlab-local-0
+    state: absent
+    force_kill: yes
+
+- name: Get running containers
+  docker_host_info:
+    containers: yes
+  register: docker_info
+
+- name: Stop running containers
+  docker_container:
+    name: "{{ item }}"
+    state: stopped
+  loop: "{{ docker_info.containers | map(attribute='Id') | list }}"
+
+- name: Remove all Docker unused objects
+  command: docker system prune -a --volumes -f
+
+- name: Ensure GitLab data directories are removed
+  file:
+    path: "/var/contain/vdb1/gitlab"
+    state: absent
+
+- name: Run GitLab container
+  docker_container:
+    name: gitlab-local-0
+    image: "gitlab/gitlab-ce:17.10.0-ce.0"
+    state: started
+    detach: yes
+    restart_policy: always
+    published_ports:
+      - "443:443"
+      - "8880:80"
+      - "2222:22"
+    volumes:
+      - "/var/contain/vdb1/gitlab/config:/etc/gitlab"
+      - "/var/contain/vdb1/gitlab/logs:/var/log/gitlab"
+      - "/var/contain/vdb1/gitlab/data:/var/opt/gitlab"
+    shm_size: "2GB"
+    cpus: 2
+    hostname: 'coreos04.k8s.local'
+  register: _debug
+  until: _debug.failed is not true
+  retries: 5
+  delay: 3

@@ -1,0 +1,162 @@
+# - name: Copy CA cert from mon to cp
+#   synchronize:
+#     src: /etc/ssl/certs/coolcorp.pem
+#     dest: /etc/ssl/certs/coolcorp.pem
+#     mode: pull
+#   delegate_to: 192.168.122.104
+- name: Copy CA cert from control node to cp
+  copy:
+    src: /tmp/coolcorp.pem
+    dest: /etc/pki/ca-trust/source/anchors/coolcorp.pem
+    owner: root
+    group: root
+    mode: '0644'
+- name: update CA trust
+  shell: update-ca-trust
+  register: _debug
+  # ignore_errors: true
+- name: Debug
+  debug:
+    var: _debug
+
+- name: Slurp CA cert file contents
+  slurp:
+    src: /etc/pki/ca-trust/source/anchors/coolcorp.pem
+  register: cert_file
+
+- name: clear before bootstrap
+  shell: flux uninstall --silent
+  register: _clear
+  retries: 5
+  delay: 10
+- name: Debug
+  debug:
+    var: _clear
+
+- name: Execute bootstrap flux
+  shell: KUBECONFIG=/etc/kubernetes/admin.conf GITLAB_TOKEN='{{ gitlab_token }}' flux bootstrap gitlab --hostname=https://coreos04.k8s.local --deploy-token-auth --owner='{{ gitlab_username }}' --repository=flux-config --branch=master --path=clusters/k8s-local --personal --ca-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem
+  register: _repo_add
+  retries: 5
+  delay: 10
+  # ignore_errors: true
+- name: Debug
+  debug:
+    var: _repo_add
+
+
+- name: Copy ssh key to cp node
+  copy:
+    src: /tmp/gitlab_admin
+    dest: /root/.ssh/gitlab_admin
+    owner: root
+    group: root
+    mode: '0600'
+- name: create directory for repos
+  ansible.builtin.file:
+    path: /var/repos/
+    state: directory
+    mode: '0755'
+- name: add ssh config
+  ansible.builtin.copy:
+    content: |
+      Host coreos04.k8s.local
+        HostName coreos04.k8s.local
+        IdentityFile /root/.ssh/gitlab_admin
+        Port 2222
+        StrictHostKeyChecking no
+    dest: /root/.ssh/config
+- name: Remove a directory
+  ansible.builtin.file:
+    path: /var/repos/flux-config
+    state: absent
+
+- name: Configure Git user if not already set
+  command: "{{ item }}"
+  with_items:
+    - git config --global user.email "gitlab_admin@example.com"
+    - git config --global user.name "gitlab_admin"
+  ignore_errors: true  # Ignore errors in case it's already configured
+
+- name: Check if known_hosts file exists
+  stat:
+    path: /root/.ssh/known_hosts
+  register: known_hosts_stat
+
+- name: Clear the authorized_keys if known_hosts exists
+  command: sed -i '/coreos04.k8s.local/d' /root/.ssh/known_hosts
+  when: known_hosts_stat.stat.exists
+
+- name: clone the fluxCD config repo locally
+  command: git clone git@coreos04.k8s.local:gitlab_admin/flux-config.git
+  args:
+    chdir: "/var/repos"
+  register: _debug
+  retries: 5
+  delay: 5
+- name: debug
+  debug:
+    var: _debug
+
+# flux-podinfo-secret
+- name: create secret
+  shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create secret git flux-podinfo-secret --url=https://coreos04.k8s.local/gitlab_admin/podinfo --namespace=flux-system --username='flux-user' --ca-crt-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem --password='{{ hostvars['mon1'].deploy_token }}'
+
+- name: create directory for repos
+  ansible.builtin.file:
+    path: /var/repos/flux-config/clusters/k8s-local
+    state: directory
+    mode: '0755'
+
+- name: Add podinfo repository to flux
+  shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create source git podinfo --url=https://coreos04.k8s.local/gitlab_admin/podinfo --branch=main --secret-ref flux-podinfo-secret --interval=1m --export > ./clusters/k8s-local/podinfo-source.yaml
+  retries: 5
+  delay: 10
+  register: _debug
+  args:
+    chdir: "/var/repos/flux-config"
+- name: debug
+  debug:
+    var: _debug
+
+- name: update flux config repo
+  shell: git add -A && git commit -m "Add podinfo GitRepository" && git push
+  args:
+    chdir: "/var/repos/flux-config"
+  ignore_errors: true
+
+- name: create kustomization
+  shell:  KUBECONFIG=/etc/kubernetes/admin.conf flux create kustomization podinfo --target-namespace=default --source=podinfo --path="./kustomize" --prune=true --wait=true --interval=30m --retry-interval=2m --health-check-timeout=3m --export > ./clusters/k8s-local/podinfo-kustomization.yaml
+  args:
+    chdir: "/var/repos/flux-config"
+  register: _debug
+- name: debug
+  debug:
+    var: _debug
+
+- name: update flux config repo
+  shell: git add -A && git commit -m "Add podinfo Kustomization" && git push
+  args:
+    chdir: "/var/repos/flux-config"
+  ignore_errors: true
+
+
+# - name: download glab archive
+#   shell: curl -LO https://gitlab.com/gitlab-org/cli/-/releases/v1.55.0/downloads/glab_1.55.0_linux_amd64.tar.gz
+#   args:
+#     chdir: "/root/"
+# - name: unpack glab
+#   shell: tar xvzf /root/glab_1.55.0_linux_amd64.tar.gz
+# - name: set glab host
+#   shell: glab config set -g host coreos04.k8s.local
+# - name: set glab CA cert checking
+#   shell: glab config set ca_cert /etc/pki/ca-trust/source/anchors/coolcorp.pem --host coreos04.k8s.local
+# - name: run glab k8s cluster agent bootstrap
+#   shell: GITLAB_TOKEN='{{ gitlab_token }}' glab cluster agent bootstrap --manifest-path clusters/k8s-local glab-agent
+#   register: _debug
+#   until: _debug.failed is not true
+#   # ignore_errors: true
+#   retries: 4
+#   delay: 10
+
+# flux get kustomizations
+# kubectl get deployments,services

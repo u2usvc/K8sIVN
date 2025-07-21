@@ -1,0 +1,34 @@
+- name: Install FluxCD
+  hosts: cp
+  roles: 
+    - cicd/install_fluxcd
+  vars_files:
+    - ../config.json
+  vars:
+    gitlab_username: "{{cicd.gitlab_username}}"
+    gitlab_token: "{{cicd.gitlab_token}}"
+
+- name: Prepare GitLab
+  hosts: mon
+  roles:
+    - cicd/mon_prep
+    - cicd/deploy_gitlab
+  vars_files:
+    - ../config.json
+  vars:
+    gitlab_username: "{{cicd.gitlab_username}}"
+    gitlab_token: "{{cicd.gitlab_token}}"
+    gitlab_password: "{{cicd.gitlab_password}}"
+    secret_ca_passphrase: "{{cicd.secret_ca_passphrase}}"
+
+- name: Setup FluxCD
+  hosts: cp
+  roles:
+    - cicd/setup_fluxcd
+  vars_files:
+    - ../config.json
+  vars:
+    gitlab_username: "{{cicd.gitlab_username}}"
+    gitlab_token: "{{cicd.gitlab_token}}"
+    gitlab_password: "{{cicd.gitlab_password}}"
+

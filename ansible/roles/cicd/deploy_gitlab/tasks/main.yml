@@ -1,0 +1,11 @@
+- name: Prepare repos
+  import_tasks: repos_prep.yml
+
+- name: Run GitLab container
+  import_tasks: run.yml
+
+- name: Initial gitlab configuration
+  import_tasks: conf.yml
+
+- name: Add necessary repositories
+  import_tasks: repos_add.yml

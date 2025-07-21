@@ -1,0 +1,153 @@
+### {https://docs.gitlab.com/api/projects/}
+- name: Check if GitLab project exists
+  uri:
+    url: "https://coreos04.k8s.local/api/v4/projects?search=podinfo"
+    method: GET
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_token }}"
+    return_content: yes
+  register: check_project_response
+
+- name: Create a new project in GitLab
+  uri:
+    url: "https://coreos04.k8s.local/api/v4/projects/"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_token }}"
+      Content-Type: "application/json"
+    body:
+      name: "podinfo"
+      description: "Test project"
+      path: "podinfo"
+      initialize_with_readme: false
+    body_format: json
+    status_code: 201
+  when: check_project_response.json | length == 0
+  register: create_project_response
+  retries: 30
+  delay: 10
+  until: gitlab_status.status == 200
+
+- name: Ensure the local repository exists
+  stat:
+    path: "/var/repos/podinfo/.git"
+  register: git_repo_stat
+
+- name: Initialize git in the local webapp repository if not already initialized
+  command: git init
+  args:
+    chdir: "/var/repos/podinfo"
+  when: not git_repo_stat.stat.exists
+
+# - name: Check if the remote repository is already set
+#   command: git remote get-url origin
+#   args:
+#     chdir: "/var/repos/podinfo"
+#   register: git_remote_check
+#   ignore_errors: yes  # Avoid failing if remote is not set
+
+- name: remove origin
+  command: git remote remove origin
+  args:
+    chdir: "/var/repos/podinfo"
+  ignore_errors: true
+- name: Add the remote GitLab repository if not already set
+  command: git remote add origin 'git@coreos04.k8s.local:gitlab_admin/podinfo.git'
+  args:
+    chdir: "/var/repos/podinfo"
+  # when: git_remote_check.rc != 0
+
+- name: add ssh config
+  ansible.builtin.copy:
+    content: |
+      Host coreos04.k8s.local
+        HostName coreos04.k8s.local
+        IdentityFile /root/.ssh/gitlab_admin
+        Port 2222
+        StrictHostKeyChecking no
+    dest: /root/.ssh/config
+
+- name: Add files to git
+  command: git add --all
+  args:
+    chdir: "/var/repos/podinfo"
+
+- name: Configure Git user if not already set
+  command: "{{ item }}"
+  with_items:
+    - git config --global user.email "gitlab_admin@example.com"
+    - git config --global user.name "gitlab_admin"
+  ignore_errors: true  # Ignore errors in case it's already configured
+
+- name: Check if there are changes to commit
+  command: git status
+  args:
+    chdir: "/var/repos/podinfo"
+  register: _git_status
+  # ignore_errors: true
+- name: Debug
+  debug:
+    var: _git_status
+
+# - name: Commit the changes to git (if any)
+#   command: git commit -m "Initial commit"
+#   args:
+#     chdir: "/var/repos/podinfo"
+#   when: _git_status.stdout != ""
+#   register: git_commit
+#   failed_when: git_commit.rc != 0 and 'nothing to commit' not in git_commit.stderr
+
+- name: create main branch
+  shell: git checkout -b main v6.x
+  args:
+    chdir: "/var/repos/podinfo"
+
+- name: Check if known_hosts file exists
+  stat:
+    path: /root/.ssh/known_hosts
+  register: known_hosts_stat
+
+- name: Clear the authorized_keys if known_hosts exists
+  command: sed -i '/coreos04.k8s.local/d' /root/.ssh/known_hosts
+  when: known_hosts_stat.stat.exists
+
+- name: Push to GitLab repository
+  command: git push origin main
+  args:
+    chdir: "/var/repos/podinfo"
+  when: _git_status.stdout != ""
+
+- name: Create a deploy token for podinfo
+  uri:
+    url: "https://coreos04.k8s.local/api/v4/projects/1/deploy_tokens/"
+    method: POST
+    headers:
+      PRIVATE-TOKEN: "{{ gitlab_token }}"
+      Content-Type: "application/json"
+    body:
+      name: "Flux deploy token"
+      username: "flux-user"
+      scopes:
+        - "read_repository"
+      initialize_with_readme: false
+    body_format: json
+    status_code: 201
+  register: create_project_response
+  retries: 3
+  delay: 10
+
+- name: set deploy token as a fact
+  set_fact:
+    deploy_token: "{{ create_project_response.json.token }}"
+    cacheable: true  # Makes it available across plays
+- name: Display the deploy token
+  debug:
+    var: deploy_token
+
+
+- name: Fetch ssh key from mon to host
+  ansible.builtin.fetch:
+    src: /root/.ssh/gitlab_admin
+    dest: /tmp/gitlab_admin
+    flat: yes
+
