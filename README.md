@@ -28,6 +28,11 @@ virsh pool-destroy --pool fcos_k8s_lab_pool
 virsh pool-undefine --pool fcos_k8s_lab_pool
 ```
 
+## Prerequisites
+1. terraform, ansible, libvirt and qemu should be installed.
+2. `libvirtd` should be running.
+3. ensure your user is a member of `libvirt` group
+
 ## Usage
 Initialize terraform project:
 ```
