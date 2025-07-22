@@ -12,6 +12,23 @@
   debug:
     var: _repo_add
 
+# only kwn2 should run nginx-ingress
+- name: Label kwn2 ingress-ready
+  kubernetes.core.k8s:
+    kubeconfig: /etc/kubernetes/admin.conf
+    state: patched
+    kind: Node
+    name: coreos03
+    api_version: v1
+    definition:
+      metadata:
+        labels:
+          "ingress-ready": "true"
+  register: _relabel
+  until: _relabel.failed is not true
+  retries: 5
+  delay: 3
+
 - name: Install ingress-nginx via Helm
   kubernetes.core.helm:
     name: nginx-ingress
@@ -29,6 +46,8 @@
         ingressClassResource:
           name: nginx  # Match with ingressClassName in Ingress resource
           enabled: true
+        nodeSelector:
+          "ingress-ready": "true"
   register: _install_package
   until: _install_package.failed is not true
   # ignore_errors: true
