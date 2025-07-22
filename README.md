@@ -35,13 +35,32 @@ virsh pool-undefine --pool fcos_k8s_lab_pool
 
 ## Usage
 Initialize terraform project:
-```
+```bash
 cd ./terraform/ && terraform init -upgrade
 ```
 
 In order to achieve basic cluster deployment - exclude unwanted playbooks from `./ansible/playbooks/imports.yml`
 
 Execute the deployment script:
-```
+```bash
 ./setup.sh
 ```
+After deployment, you may directly ssh into one of the hosts in `./ansible/inventory.ini`, the password is `foobar`.
+```bash
+ssh core@192.168.122.101
+```
+
+Optionally, add these domains to `/etc/hosts`:
+```bash
+### /etc/hosts
+# add coreos04
+192.168.122.104 gitlab.k8s.local
+# add ingress
+192.168.122.103 grafana.k8s.local
+192.168.122.103 vulnapp.k8s.local
+```
+
+To add or remove functionality within the deployment - edit:
+1. `./ansible/playbooks/imports.yml` - to import/remove playbooks
+2. `./ansible/playbooks/$PLAYBOOK` - to add/remove roles to a specific playbook
+3. `./ansible/roles/*` - roles dir
