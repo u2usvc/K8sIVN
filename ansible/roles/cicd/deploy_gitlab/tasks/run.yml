@@ -41,7 +41,7 @@
       - "/var/contain/vdb1/gitlab/data:/var/opt/gitlab"
     shm_size: "2GB"
     cpus: 2
-    hostname: 'coreos04.k8s.local'
+    hostname: 'coreos04.k8s.lab'
   register: _debug
   until: _debug.failed is not true
   retries: 5

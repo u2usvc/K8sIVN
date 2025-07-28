@@ -33,7 +33,7 @@
         --owner={{ gitlab_username }} \
         --repository=flux-config \
         --branch=master \
-        --path=clusters/k8s-local \
+        --path=clusters/k8s-lab \
         --personal
     owner: root
     group: root

@@ -57,7 +57,7 @@ resource "libvirt_network" "fcos_k8s_lab" {
   name      = "fcos_k8s_lab"
   mode      = "nat"
   bridge    = "k8sbr0"
-  domain    = "k8s.local"
+  domain    = "k8s.lab"
   addresses = ["192.168.122.0/24"]
   dhcp {
     enabled = true

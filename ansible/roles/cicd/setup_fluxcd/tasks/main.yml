@@ -34,7 +34,7 @@
     var: _clear
 
 - name: Execute bootstrap flux
-  shell: KUBECONFIG=/etc/kubernetes/admin.conf GITLAB_TOKEN='{{ gitlab_token }}' flux bootstrap gitlab --hostname=https://coreos04.k8s.local --deploy-token-auth --owner='{{ gitlab_username }}' --repository=flux-config --branch=master --path=clusters/k8s-local --personal --ca-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem
+  shell: KUBECONFIG=/etc/kubernetes/admin.conf GITLAB_TOKEN='{{ gitlab_token }}' flux bootstrap gitlab --hostname=https://coreos04.k8s.lab --deploy-token-auth --owner='{{ gitlab_username }}' --repository=flux-config --branch=master --path=clusters/k8s-lab --personal --ca-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem
   register: _repo_add
   retries: 5
   delay: 10
@@ -59,8 +59,8 @@
 - name: add ssh config
   ansible.builtin.copy:
     content: |
-      Host coreos04.k8s.local
-        HostName coreos04.k8s.local
+      Host coreos04.k8s.lab
+        HostName coreos04.k8s.lab
         IdentityFile /root/.ssh/gitlab_admin
         Port 2222
         StrictHostKeyChecking no
@@ -83,11 +83,11 @@
   register: known_hosts_stat
 
 - name: Clear the authorized_keys if known_hosts exists
-  command: sed -i '/coreos04.k8s.local/d' /root/.ssh/known_hosts
+  command: sed -i '/coreos04.k8s.lab/d' /root/.ssh/known_hosts
   when: known_hosts_stat.stat.exists
 
 - name: clone the fluxCD config repo locally
-  command: git clone git@coreos04.k8s.local:gitlab_admin/flux-config.git
+  command: git clone git@coreos04.k8s.lab:gitlab_admin/flux-config.git
   args:
     chdir: "/var/repos"
   register: _debug
@@ -99,16 +99,16 @@
 
 # flux-podinfo-secret
 - name: create secret
-  shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create secret git flux-podinfo-secret --url=https://coreos04.k8s.local/gitlab_admin/podinfo --namespace=flux-system --username='flux-user' --ca-crt-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem --password='{{ hostvars['mon1'].deploy_token }}'
+  shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create secret git flux-podinfo-secret --url=https://coreos04.k8s.lab/gitlab_admin/podinfo --namespace=flux-system --username='flux-user' --ca-crt-file=/etc/pki/ca-trust/source/anchors/coolcorp.pem --password='{{ hostvars['mon1'].deploy_token }}'
 
 - name: create directory for repos
   ansible.builtin.file:
-    path: /var/repos/flux-config/clusters/k8s-local
+    path: /var/repos/flux-config/clusters/k8s-lab
     state: directory
     mode: '0755'
 
 - name: Add podinfo repository to flux
-  shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create source git podinfo --url=https://coreos04.k8s.local/gitlab_admin/podinfo --branch=main --secret-ref flux-podinfo-secret --interval=1m --export > ./clusters/k8s-local/podinfo-source.yaml
+  shell: KUBECONFIG=/etc/kubernetes/admin.conf flux create source git podinfo --url=https://coreos04.k8s.lab/gitlab_admin/podinfo --branch=main --secret-ref flux-podinfo-secret --interval=1m --export > ./clusters/k8s-lab/podinfo-source.yaml
   retries: 5
   delay: 10
   register: _debug
@@ -125,7 +125,7 @@
   ignore_errors: true
 
 - name: create kustomization
-  shell:  KUBECONFIG=/etc/kubernetes/admin.conf flux create kustomization podinfo --target-namespace=default --source=podinfo --path="./kustomize" --prune=true --wait=true --interval=30m --retry-interval=2m --health-check-timeout=3m --export > ./clusters/k8s-local/podinfo-kustomization.yaml
+  shell:  KUBECONFIG=/etc/kubernetes/admin.conf flux create kustomization podinfo --target-namespace=default --source=podinfo --path="./kustomize" --prune=true --wait=true --interval=30m --retry-interval=2m --health-check-timeout=3m --export > ./clusters/k8s-lab/podinfo-kustomization.yaml
   args:
     chdir: "/var/repos/flux-config"
   register: _debug
@@ -147,11 +147,11 @@
 # - name: unpack glab
 #   shell: tar xvzf /root/glab_1.55.0_linux_amd64.tar.gz
 # - name: set glab host
-#   shell: glab config set -g host coreos04.k8s.local
+#   shell: glab config set -g host coreos04.k8s.lab
 # - name: set glab CA cert checking
-#   shell: glab config set ca_cert /etc/pki/ca-trust/source/anchors/coolcorp.pem --host coreos04.k8s.local
+#   shell: glab config set ca_cert /etc/pki/ca-trust/source/anchors/coolcorp.pem --host coreos04.k8s.lab
 # - name: run glab k8s cluster agent bootstrap
-#   shell: GITLAB_TOKEN='{{ gitlab_token }}' glab cluster agent bootstrap --manifest-path clusters/k8s-local glab-agent
+#   shell: GITLAB_TOKEN='{{ gitlab_token }}' glab cluster agent bootstrap --manifest-path clusters/k8s-lab glab-agent
 #   register: _debug
 #   until: _debug.failed is not true
 #   # ignore_errors: true

@@ -1,4 +1,5 @@
 DEV_README.md
+**/*.norg
 **/terraform.tfstate
 **/terraform.tfstate
 **/terraform.tfstate.backup

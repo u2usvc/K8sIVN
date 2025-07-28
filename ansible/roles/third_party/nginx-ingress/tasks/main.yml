@@ -73,7 +73,7 @@
       spec:
         ingressClassName: nginx
         rules:
-          - host: grafana.k8s.local
+          - host: grafana.k8s.lab
             http:
               paths:
                 - pathType: Prefix

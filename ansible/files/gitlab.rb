@@ -1,16 +1,16 @@
-external_url 'https://coreos04.k8s.local'
+external_url 'https://coreos04.k8s.lab'
 
 letsencrypt['enable'] = false
 
 # If using custom SSL certificates
 nginx['enable'] = true
 nginx['redirect_http_to_https'] = true
-nginx['ssl_certificate'] = "/etc/gitlab/ssl/coreos04.k8s.local.pem"
-nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/coreos04.k8s.local.key"
+nginx['ssl_certificate'] = "/etc/gitlab/ssl/coreos04.k8s.lab.pem"
+nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/coreos04.k8s.lab.key"
 
 
 # ### Gitlab Kubernetes Agent Server config
-# gitlab_kas_external_url 'wss://kas.coreos04.k8s.local/'
+# gitlab_kas_external_url 'wss://kas.coreos04.k8s.lab/'
 #
 # # The shared secret used for authentication between KAS and GitLab. The value must be Base64-encoded and exactly 32 bytes long.
 # gitlab_kas['api_secret_key'] = '3hG2VZp8JtN6qLf5Xy0mBzC9WsA4pRjKQZ8vNsdYgEo='
@@ -25,6 +25,6 @@ nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/coreos04.k8s.local.key"
 #   'SSL_CERT_DIR' => "/opt/gitlab/embedded/ssl/certs/",
 # }
 #
-# gitlab_rails['gitlab_kas_external_url'] = 'wss://coreos04.k8s.local/-/kubernetes-agent/'
-# gitlab_rails['gitlab_kas_internal_url'] = 'grpc://kas.internal.coreos04.k8s.local'
-# gitlab_rails['gitlab_kas_external_k8s_proxy_url'] = 'https://coreos04.k8s.local/-/kubernetes-agent/k8s-proxy/'
+# gitlab_rails['gitlab_kas_external_url'] = 'wss://coreos04.k8s.lab/-/kubernetes-agent/'
+# gitlab_rails['gitlab_kas_internal_url'] = 'grpc://kas.internal.coreos04.k8s.lab'
+# gitlab_rails['gitlab_kas_external_k8s_proxy_url'] = 'https://coreos04.k8s.lab/-/kubernetes-agent/k8s-proxy/'
