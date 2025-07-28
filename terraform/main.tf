@@ -73,6 +73,19 @@ resource "libvirt_network" "fcos_k8s_lab" {
   xml {
     xslt = file("dhcp_lease.xsl")
   }
+
+  dnsmasq_options {
+    options {
+      option_name = "log-dhcp"
+    }
+    options {
+      option_name = "log-queries"
+    }
+    options {
+      option_name  = "log-facility"
+      option_value = "/var/log/k8sivn_dnsmasq.log"
+    }
+  }
 }
 
 
