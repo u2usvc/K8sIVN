@@ -67,6 +67,24 @@ resource "libvirt_network" "fcos_k8s_lab" {
     forwarders {
       address = "1.1.1.1"
     }
+
+    hosts {
+      hostname = "coreos01"
+      ip       = "192.168.122.101"
+    }
+    hosts {
+      hostname = "coreos02"
+      ip       = "192.168.122.102"
+    }
+    hosts {
+      hostname = "coreos03"
+      ip       = "192.168.122.103"
+    }
+    hosts {
+      hostname = "coreos04"
+      ip       = "192.168.122.104"
+    }
+
   }
 
   # for static IP assigment. see ./dhcp_lease.xsl
