@@ -20,8 +20,6 @@ Before running the setup.sh, make sure to initialize the terraform project.
 
 If a script fails to remove the existing cluster resources (e.g. if you manually removed tf state files), you can undefine them manually:
 ```bash
-sudo ip link delete virbr0
-
 sudo virsh undefine --domain coreos01
 
 virsh pool-destroy --pool fcos_k8s_lab_pool
@@ -47,17 +45,17 @@ Execute the deployment script:
 ```
 After deployment, you may directly ssh into one of the hosts in `./ansible/inventory.ini`, the password is `foobar`.
 ```bash
-ssh core@192.168.122.101
+ssh core@192.168.190.101
 ```
 
 Optionally, add these domains to `/etc/hosts`:
 ```bash
 ### /etc/hosts
 # add coreos04
-192.168.122.104 gitlab.k8s.local
+192.168.190.104 gitlab.k8s.local
 # add ingress
-192.168.122.103 grafana.k8s.local
-192.168.122.103 vulnapp.k8s.local
+192.168.190.103 grafana.k8s.local
+192.168.190.103 vulnapp.k8s.local
 ```
 
 To add or remove functionality within the deployment - edit:

@@ -58,7 +58,7 @@ resource "libvirt_network" "fcos_k8s_lab" {
   mode      = "nat"
   bridge    = "k8sbr0"
   domain    = "k8s.lab"
-  addresses = ["192.168.122.0/24"]
+  addresses = ["192.168.190.0/24"]
   dhcp {
     enabled = true
   }
@@ -70,19 +70,19 @@ resource "libvirt_network" "fcos_k8s_lab" {
 
     hosts {
       hostname = "coreos01"
-      ip       = "192.168.122.101"
+      ip       = "192.168.190.101"
     }
     hosts {
       hostname = "coreos02"
-      ip       = "192.168.122.102"
+      ip       = "192.168.190.102"
     }
     hosts {
       hostname = "coreos03"
-      ip       = "192.168.122.103"
+      ip       = "192.168.190.103"
     }
     hosts {
       hostname = "coreos04"
-      ip       = "192.168.122.104"
+      ip       = "192.168.190.104"
     }
 
   }

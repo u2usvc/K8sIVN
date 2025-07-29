@@ -3,7 +3,7 @@
 #     src: /etc/ssl/certs/coolcorp.pem
 #     dest: /etc/ssl/certs/coolcorp.pem
 #     mode: pull
-#   delegate_to: 192.168.122.104
+#   delegate_to: 192.168.190.104
 - name: Copy CA cert from control node to cp
   copy:
     src: /tmp/coolcorp.pem
