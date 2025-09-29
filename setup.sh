@@ -7,6 +7,7 @@ NC='\e[0m' # No Color
 set -e
 
 cd ./terraform/
+mkdir -p images
 
 # download FCOS
 cd ./images/
