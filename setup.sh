@@ -42,7 +42,11 @@ echo -e "${YELLOW}###########################################${NC}"
 sleep 4
 cd ../ansible/
 
-sed -i '/192.168.190.101\|192.168.190.102\|192.168.190.103\|192.168.190.104/d' ~/.ssh/known_hosts
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.101
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.102
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.103
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.104
+
 ansible-playbook -i inventory.ini playbooks/imports.yml
 
 cd ../
