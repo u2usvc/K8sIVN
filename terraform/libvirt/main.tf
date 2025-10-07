@@ -89,7 +89,7 @@ resource "libvirt_network" "fcos_k8s_lab" {
 
   # for static IP assigment. see ./dhcp_lease.xsl
   xml {
-    xslt = file("dhcp_lease.xsl")
+    xslt = file("../dhcp_lease.xsl")
   }
 
   dnsmasq_options {

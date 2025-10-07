@@ -6,7 +6,23 @@ NC='\e[0m' # No Color
 # interupt script on fail
 set -e
 
-cd ./terraform/
+echo -e "${YELLOW}Select provider:${NC}"
+echo "1) libvirt"
+echo "2) proxmox"
+
+read -rp "Enter your choice [1-2]: " choice
+
+case "$choice" in
+1) cd ./terraform/libvirt/ ;;
+2) cd ./terraform/proxmox/ ;;
+*)
+  echo -e "${RED}Invalid choice. Exiting.${NC}"
+  exit 1
+  ;;
+esac
+
+echo -e "${GREEN}Changed directory to $(pwd)${NC}"
+
 mkdir -p images
 
 # download FCOS
