@@ -23,7 +23,7 @@ data "ignition_config" "startup" {
   # directories = [
   #   element(data.ignition_directory.mnt.*.rendered, count.index)
   # ]
-  
+
   disks = [
     element(data.ignition_disk.rookdisk.*.rendered, count.index)
   ]
@@ -53,8 +53,8 @@ data "ignition_config" "startup" {
 
 # Replace the default hostname with our generated one
 data "ignition_file" "hostname" {
-  path       = "/etc/hostname"
-  mode       = 420 # decimal 0644
+  path = "/etc/hostname"
+  mode = 420 # decimal 0644
 
   content {
     # see main.tf -> Variables
@@ -66,7 +66,7 @@ data "ignition_file" "hostname" {
 }
 
 data "ignition_file" "iptables" {
-  path       = "/etc/sysctl.d/90-kubernetes.conf"
+  path = "/etc/sysctl.d/90-kubernetes.conf"
 
   content {
     content = <<EOF
@@ -84,7 +84,7 @@ fs.inotify.max_user_instances = 256
 }
 
 data "ignition_file" "security_limits" {
-  path       = "/etc/security/limits.d/90-kubernetes.conf"
+  path = "/etc/security/limits.d/90-kubernetes.conf"
 
   content {
     content = <<EOF
@@ -96,9 +96,9 @@ data "ignition_file" "security_limits" {
 }
 
 data "ignition_file" "br_netfilter" {
-  path       = "/etc/modules-load.d/br_netfilter.conf"
-  mode       = 420 # decimal 0644
-  overwrite  = true
+  path      = "/etc/modules-load.d/br_netfilter.conf"
+  mode      = 420 # decimal 0644
+  overwrite = true
 
   content {
     content = <<EOF
@@ -110,9 +110,9 @@ br_netfilter
 }
 
 data "ignition_file" "kubernetes_repo" {
-  path       = "/etc/yum.repos.d/kubernetes.repo"
-  mode       = 420 # decimal 0644
-  overwrite  = true
+  path      = "/etc/yum.repos.d/kubernetes.repo"
+  mode      = 420 # decimal 0644
+  overwrite = true
 
   content {
     content = <<EOF
@@ -130,24 +130,24 @@ gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repodata/repomd.xml.key
 
 data "ignition_file" "allow_pass_ssh" {
   path      = "/etc/ssh/sshd_config.d/40-disable-passwords.conf"
-    overwrite = true
+  overwrite = true
 
-    content {
-      content = <<EOF
+  content {
+    content = <<EOF
 PasswordAuthentication yes
         EOF
-    }
+  }
 }
 
 data "ignition_file" "setup_nameserver" {
   path      = "/etc/resolv.conf"
-    overwrite = true
+  overwrite = true
 
-    content {
-      content = <<EOF
+  content {
+    content = <<EOF
 nameserver 1.1.1.1
         EOF
-    }
+  }
 }
 
 
@@ -160,7 +160,7 @@ data "ignition_disk" "rookdisk" {
     startmib = 0
     # fill the rest
     sizemib = 0
-    label = "CONTAIN"
+    label   = "CONTAIN"
   }
   count = var.hosts
 }
@@ -169,10 +169,10 @@ data "ignition_disk" "rookdisk" {
 data "ignition_filesystem" "rookfs" {
   device = "/dev/vdb1"
   format = "xfs"
-# when mkdir, appends /sysroot
+  # when mkdir, appends /sysroot
   # path   = "/../contain/vdb1"
   options = ["-L", "CONT"]
-  count = var.hosts
+  count   = var.hosts
 }
 
 #################################
