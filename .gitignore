@@ -12,3 +12,4 @@ DEV_README.md
 **/lib/
 **/lib64
 **/pyvenv.cfg
+**/.env
