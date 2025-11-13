@@ -1,6 +1,6 @@
 ## About
 
-This is an IaC FCOS-based K8s cluster deployment utilizing `terraform-provider-libvirt`. This project is work in progress with an intention to make an intentionally-vulnerable K8s cluster out of it, for attack emulation and utility testing.
+This is an IaC FCOS-based K8s cluster deployment utilizing `terraform-provider-libvirt` (or `bpg/proxmox` provider). This project is work in progress with an intention to make an intentionally-vulnerable K8s cluster out of it, for attack emulation and utility testing.
 
 This project additionally integrates
 
@@ -31,26 +31,56 @@ virsh pool-undefine --pool fcos_k8s_lab_pool
 
 ## Prerequisites
 
-1. terraform, ansible, libvirt and qemu should be installed.
+1. terraform, libvirt, jq and qemu should be installed.
 2. xsltproc should be installed
 3. `libvirtd` should be running.
 4. ensure your user is a member of `libvirt` group
 
 ## Usage
 
+## Libvirt deployment
+
+This project uses libvirt `qemu:///system`
+
 Initialize terraform project:
 
 ```bash
-cd ./terraform/ && terraform init -upgrade
+cd ./terraform/libvirt && terraform init -upgrade
 ```
 
 In order to achieve basic cluster deployment - exclude unwanted playbooks from `./ansible/playbooks/imports.yml`
+
+Install ansible
+
+```bash
+cd ansible
+python -m venv ./
+. ./bin/activate
+
+# libssh-devel is required
+pip install ansible ansible-pylibssh
+```
 
 Execute the deployment script:
 
 ```bash
 ./setup.sh
 ```
+
+## Alternative: proxmox deployment
+
+1. Generate Proxmox API token.
+2. Create a file under `./terraform/proxmox/.env` and write that API token into it as so: `PROXMOX_VE_API_TOKEN=ffffffff-ffff-ffff-ffff-ffffffffffff`
+3. ensure `vars.tf > snippets_datastore` indeed supports snippets and imports by editing it under `Datacenter > Storage > $DATASTORE > Edit > Content`
+4. ensure you have your key imported to the remote PVE host: `ssh-copy-id -i $TF_VAR_pve_ssh_key_path root@pve.aperture.ad`
+
+Execute the deployment script:
+
+```bash
+./setup.sh
+```
+
+## Accessing the cluster
 
 After deployment, you may directly ssh into one of the hosts in `./ansible/inventory.ini`, the password is `foobar`.
 

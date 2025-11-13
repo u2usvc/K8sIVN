@@ -13,8 +13,29 @@ echo "2) proxmox"
 read -rp "Enter your choice [1-2]: " choice
 
 case "$choice" in
-1) cd ./terraform/libvirt/ ;;
-2) cd ./terraform/proxmox/ ;;
+1)
+  cd ./terraform/libvirt/
+  cd ./images/
+  if ls fedora-core* &>/dev/null; then
+    echo -e "${YELLOW}###########################################${NC}"
+    echo -e "${YELLOW}[>] FCOS image exists. Skipping the download${NC}"
+    echo -e "${YELLOW}###########################################${NC}"
+  else
+    echo -e "${YELLOW}[X] Downloading FCOS${NC}" && sleep 1
+    wget https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/41.20250215.3.0/x86_64/fedora-coreos-41.20250215.3.0-qemu.x86_64.qcow2.xz
+    echo -e "${YELLOW}[X] Unpacking FCOS${NC}"
+    unxz fedora-coreos-41.20250215.3.0-qemu.x86_64.qcow2.xz
+  fi
+  sleep 1
+  cd ..
+  ;;
+2)
+  cd ./terraform/proxmox/ && export $(grep -v '^#' .env | xargs)
+  ssh -i $TF_VAR_pve_ssh_key_path root@pve.aperture.ad "
+    if [ ! -f "/var/lib/vz/template/iso/fedora-coreos-41.iso" ]; then
+      curl -fL https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/41.20250215.3.0/x86_64/fedora-coreos-41.20250215.3.0-qemu.x86_64.qcow2.xz | xz -dc > /var/lib/vz/template/iso/fedora-coreos-41.iso
+    fi"
+  ;;
 *)
   echo -e "${RED}Invalid choice. Exiting.${NC}"
   exit 1
@@ -25,21 +46,6 @@ echo -e "${GREEN}Changed directory to $(pwd)${NC}"
 
 mkdir -p images
 
-# download FCOS
-cd ./images/
-if ls fedora-core* &>/dev/null; then
-  echo -e "${YELLOW}###########################################${NC}"
-  echo -e "${YELLOW}[>] FCOS image exists. Skipping the download${NC}"
-  echo -e "${YELLOW}###########################################${NC}"
-else
-  echo -e "${YELLOW}[X] Downloading FCOS${NC}" && sleep 1
-  wget https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/41.20250215.3.0/x86_64/fedora-coreos-41.20250215.3.0-qemu.x86_64.qcow2.xz
-  echo -e "${YELLOW}[X] Unpacking FCOS${NC}"
-  unxz fedora-coreos-41.20250215.3.0-qemu.x86_64.qcow2.xz
-fi
-sleep 1
-
-cd ..
 echo -e "${YELLOW}###########################################${NC}"
 echo -e "${YELLOW}[X] Destroying existing plan if any${NC}"
 echo -e "${YELLOW}###########################################${NC}"
@@ -56,13 +62,47 @@ echo -e "${YELLOW}[X] About to provision the cluster${NC}"
 echo -e "${YELLOW}[X] Passing execution flow to Ansible${NC}"
 echo -e "${YELLOW}###########################################${NC}"
 sleep 4
-cd ../ansible/
+cd ../../ansible/
 
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.101
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.102
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.103
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.104
+ips=($(echo "$TF_VAR_static_ips" | jq -r '.[]' | cut -d'/' -f1))
 
-ansible-playbook -i inventory.ini playbooks/imports.yml
+cat >inventory.ini <<EOF
+# inventory.ini
+
+kmn1 ansible_host=${ips[0]}
+
+[dp]
+kwn1 ansible_host=${ips[1]}
+kwn2 ansible_host=${ips[2]}
+; kwn3 ansible_host=${ips[3]}
+
+[mon]
+mon1 ansible_host=${ips[3]}
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=core
+ansible_password=foobar
+ansible_become=true
+EOF
+
+case "$choice" in
+1)
+  ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.101
+  ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.102
+  ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.103
+  ssh-keygen -f ~/.ssh/known_hosts -R 192.168.190.104
+  python3 -m ansible playbook -i ./inventory.ini ./playbooks/imports.yml
+  ;;
+2)
+  for ip in $ips; do
+    ssh-keygen -f ~/.ssh/known_hosts -R "$ip"
+  done
+  python3 -m ansible playbook -i ./inventory.ini ./playbooks/imports.yml
+  ;;
+*)
+  exit 1
+  ;;
+esac
 
 cd ../
