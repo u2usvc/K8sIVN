@@ -13,3 +13,4 @@ DEV_README.md
 **/lib64
 **/pyvenv.cfg
 **/.env
+./ansible/inventory.ini
