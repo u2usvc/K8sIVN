@@ -67,8 +67,7 @@ cd ../../ansible/
 ips=($(echo "$TF_VAR_static_ips" | jq -r '.[]' | cut -d'/' -f1))
 
 cat >inventory.ini <<EOF
-# inventory.ini
-
+[cp]
 kmn1 ansible_host=${ips[0]}
 
 [dp]
