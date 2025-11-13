@@ -18,6 +18,7 @@ data "ignition_config" "startup" {
     element(data.ignition_file.kubernetes_repo.*.rendered, count.index),
     element(data.ignition_file.allow_pass_ssh.*.rendered, count.index),
     element(data.ignition_file.setup_nameserver.*.rendered, count.index),
+    element(data.ignition_file.static_address.*.rendered, count.index)
   ]
 
   # directories = [
@@ -65,26 +66,49 @@ data "ignition_file" "hostname" {
   count = var.hosts
 }
 
-# data "ignition_file" "static_addr" {
-#   path = "/etc/NetworkManager/system-connections/ens18.nmconnection"
+data "ignition_file" "static_address" {
+  path  = "/etc/NetworkManager/system-connections/ens18.nmconnection"
+  count = var.hosts
+
+  # 0600 otherwise it will fail
+  mode = 384
+
+  content {
+    content = <<EOF
+[connection]
+id=ens18
+type=ethernet
+interface-name=ens18
+[ipv4]
+address1=${element(var.static_ips, count.index)},${var.gateway}
+dns=1.1.1.1;
+dns-search=
+may-fail=false
+method=manual
+    EOF
+  }
+}
+
+# data "ignition_file" "static_address" {
+#   path = "/etc/systemd/network/10-static.network"
+#   mode = 420 # 0644
 #
 #   content {
 #     content = <<EOF
-# [connection]
-# id=ens18
-# type=ethernet
-# interface-name=ens18
-# [ipv4]
-# address1=${ip}/${prefix},${gateway}
-# dhcp-hostname=${hostname}
-# dns=1.1.1.1;
-# dns-search=
-# may-fail=false
-# method=manual
-#     EOF
-#   }
-# }
+# [Match]
+# MACAddress=${element(var.mac_addresses, count.index)}
 #
+# [Network]
+# Address=${element(var.static_ips, count.index)}
+# Gateway=${var.gateway}
+# DNS=1.1.1.1
+# EOF
+#   }
+#
+#   count = var.hosts
+# }
+
+
 data "ignition_file" "iptables" {
   path = "/etc/sysctl.d/90-kubernetes.conf"
 

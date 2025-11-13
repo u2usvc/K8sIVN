@@ -48,17 +48,15 @@ variable "mac_addresses" {
   ]
 }
 
-# variable "static_ips" {
-#   type = list(string)
-#   default = [
-#     "192.168.88.41/24",
-#     "192.168.88.42/24",
-#     "192.168.88.43/24",
-#     "192.168.88.44/24"
-#   ]
-# }
-
 variable "bridge" {
   type    = string
-  default = "vmbr0" # change to k8sbr0 if your Proxmox bridge is named differently
+  default = "vmbr0"
+}
+
+
+variable "static_ips" {
+  type = list(string)
+}
+variable "gateway" {
+  type = string
 }
