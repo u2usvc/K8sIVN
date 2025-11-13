@@ -95,7 +95,8 @@ case "$choice" in
   python3 -m ansible playbook -i ./inventory.ini ./playbooks/imports.yml
   ;;
 2)
-  for ip in $ips; do
+  for ip in "${ips[@]}"; do
+    echo $ip
     ssh-keygen -f ~/.ssh/known_hosts -R "$ip"
   done
   python3 -m ansible playbook -i ./inventory.ini ./playbooks/imports.yml
