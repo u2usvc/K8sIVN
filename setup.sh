@@ -99,6 +99,7 @@ case "$choice" in
     echo $ip
     ssh-keygen -f ~/.ssh/known_hosts -R "$ip"
   done
+  . ./bin/activate
   python3 -m ansible playbook -i ./inventory.ini ./playbooks/imports.yml
   ;;
 *)
