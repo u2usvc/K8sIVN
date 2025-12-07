@@ -3,16 +3,6 @@ variable "hosts" {
   default = 4
 }
 
-variable "pve_ssh_key_path" {
-  type    = string
-  default = ""
-}
-
-variable "node_fqdn" {
-  type    = string
-  default = ""
-}
-
 variable "hostname_format" {
   type    = string
   default = "coreos%02d"
@@ -26,11 +16,6 @@ variable "node_name" {
 variable "datastore" {
   type    = string
   default = "local-lvm"
-}
-
-variable "local_datastore" {
-  type    = string
-  default = "local"
 }
 
 variable "vm_id_start" {
