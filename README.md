@@ -1,14 +1,6 @@
 ## About
 
-This is an IaC FCOS-based K8s cluster deployment utilizing `terraform-provider-libvirt` (or `bpg/proxmox` provider). This project is work in progress with an intention to make an intentionally-vulnerable K8s cluster out of it, for attack emulation and utility testing.
-
-This project additionally integrates
-
-1. Prometheus + Grafana
-2. Cilium
-3. Kyverno
-4. Rook-ceph
-5. Gitlab + FluxCD
+This is an IaC FCOS-based K8s cluster deployment utilizing `terraform-provider-libvirt` (or `bpg/proxmox` provider).
 
 The cluster is pretty resource-heavy. You can look up the resource allocation under `./terraform/main.tf` (vcpu, memory).
 
@@ -58,7 +50,8 @@ python -m venv ./
 . ./bin/activate
 
 # libssh-devel is required
-pip install ansible ansible-pylibssh
+sudo apt install sshpass
+pip install ansible==11.8.0 ansible-pylibssh
 ```
 
 Execute the deployment script:

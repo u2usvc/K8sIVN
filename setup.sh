@@ -99,6 +99,8 @@ case "$choice" in
     ssh-keygen -f ~/.ssh/known_hosts -R "$ip"
   done
   . ./bin/activate
+  echo -e "${YELLOW}wait for a minute before proceedidng${NC}"
+  sleep 60
   python3 -m ansible playbook -i ./inventory.ini ./playbooks/imports.yml
   ;;
 *)

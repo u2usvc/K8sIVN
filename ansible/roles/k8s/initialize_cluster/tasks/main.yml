@@ -41,7 +41,7 @@
 
 - name: Print kube_config
   ansible.builtin.debug:
-    var: "{{ kube_config.content | b64decode }}"
+    msg: "{{ kube_config.content | b64decode }}"
 
 - name: set global kube_config
   delegate_to: localhost

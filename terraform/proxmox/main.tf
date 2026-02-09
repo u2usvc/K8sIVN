@@ -78,7 +78,7 @@ resource "proxmox_virtual_environment_vm" "coreos" {
   disk {
     datastore_id = var.datastore
     interface    = "scsi0"
-    size         = 11
+    size         = 30
     # import_from  = "local:iso/fedora-coreos-41.raw"
     file_id = "local:iso/fedora-coreos-41.iso"
   }
@@ -86,13 +86,13 @@ resource "proxmox_virtual_environment_vm" "coreos" {
   disk {
     datastore_id = var.datastore
     interface    = "virtio1"
-    size         = 20
+    size         = 30
   }
 
   disk {
     datastore_id = var.datastore
     interface    = "virtio2"
-    size         = 6
+    size         = 30
   }
 
   network_device {
